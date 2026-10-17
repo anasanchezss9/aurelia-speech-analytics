@@ -1,0 +1,46 @@
+# Databricks App config
+# Docs: https://docs.databricks.com/dev-tools/databricks-apps/configuration.html
+
+command:
+  - "uvicorn"
+  - "app:app"
+  - "--host"
+  - "0.0.0.0"
+  - "--port"
+  - "8000"
+
+# Para levar o app a outro workspace, os campos a trocar são WHISPER_ENDPOINT,
+# PORTAL_CATALOG, PORTAL_SCHEMA e PORTAL_NOTEBOOK_PREFIX.
+
+env:
+  # ----- Endpoints -----
+  - name: WHISPER_ENDPOINT
+    value: "aurelia-whisper-turbo"
+  - name: WHISPER_SCHEMA
+    value: "simple"  # 'simple' (audio->string) | 'rich' (audio_b64+language->struct)
+  - name: LLM_MODEL
+    value: "databricks-claude-sonnet-4-6"
+  - name: WHISPER_FLUSH_SECONDS
+    value: "2.0"
+
+  # ----- Portal: catalog/schema/volume + tabelas -----
+  - name: PORTAL_CATALOG
+    value: "field_toolbox_catalog"
+  - name: PORTAL_SCHEMA
+    value: "aurelia_speech"
+  - name: PORTAL_VOLUME
+    value: "audio_landing"
+  - name: PORTAL_TABLE_BRONZE
+    value: "bronze_audio_files"
+  - name: PORTAL_TABLE_SILVER
+    value: "silver_transcripts"
+  - name: PORTAL_TABLE_GOLD
+    value: "gold_call_insights"
+
+  # ----- SQL Warehouse usado pelas queries do dashboard -----
+  - name: PORTAL_WAREHOUSE_ID
+    valueFrom: "warehouse"
+
+  # ----- Notebooks que o portal dispara via Jobs API -----
+  - name: PORTAL_NOTEBOOK_PREFIX
+    value: "/Workspace/Users/ana.sanchez@databricks.com/aurelia_speech_pipelines/imperative"

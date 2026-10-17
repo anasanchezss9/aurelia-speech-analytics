@@ -1,0 +1,40 @@
+# =====================================================================
+# Pipeline declarativo (SDP / Lakeflow) — Speech Analytics PPM Falta
+# =====================================================================
+# Este YAML pode ser deployado via Databricks Asset Bundles ou importado
+# no UI de Pipelines. Cria 1 pipeline serverless apontando para os 3
+# arquivos SQL desta pasta. Modo "triggered" (batch).
+# =====================================================================
+
+resources:
+  pipelines:
+    aurelia_speech_sdp:
+      name: aurelia-speech-analytics-sdp
+      catalog: users
+      schema: ana_sanchez
+      serverless: true
+      continuous: false        # batch (triggered)
+      development: false       # produção; false = otimizações ativas
+      photon: true
+      channel: PREVIEW         # SDP precisa de PREVIEW para algumas features
+
+      # Os 3 SQLs da pasta declarative/. Para transcrever com ai_transcribe em
+      # vez do Whisper, troque 02_silver_transcript.sql por
+      # 02_silver_transcript_ai_transcribe.sql — os dois publicam a mesma tabela.
+      libraries:
+        - file:
+            path: ./01_bronze.sql
+        - file:
+            path: ./02_silver_transcript.sql
+            # path: ./02_silver_transcript_ai_transcribe.sql
+        - file:
+            path: ./03_gold_insights.sql
+
+      # Parâmetros usados como ${var} dentro dos SQLs.
+      # Para multi-ambiente, sobrescreva via target no databricks.yml.
+      configuration:
+        catalog:          users
+        schema:           ana_sanchez
+        volume_landing:   audio_landing
+        whisper_endpoint: aurelia-whisper-turbo
+        llm_endpoint:     databricks-claude-sonnet-4-6

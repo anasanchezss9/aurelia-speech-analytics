@@ -1,0 +1,55 @@
+bundle:
+  name: aurelia-speech-analytics
+
+variables:
+  app_name:
+    description: Nome do Databricks App
+    default: aurelia-speech-analytics
+  catalog:
+    description: Catálogo do Unity Catalog onde o build vive
+    default: field_toolbox_catalog
+  schema:
+    description: Schema do build (volumes, tabelas, modelos)
+    default: aurelia_speech
+  whisper_endpoint:
+    description: Nome do endpoint de Model Serving do Whisper
+    default: aurelia-whisper-turbo
+  llm_endpoint:
+    description: Endpoint do LLM para análise
+    default: databricks-claude-sonnet-4-6
+  warehouse_id:
+    description: SQL Warehouse usado pelo dashboard
+    default: 9fc569e6e984dcde
+
+resources:
+  apps:
+    speech_analytics:
+      name: ${var.app_name}
+      description: "Speech Analytics — auditoria de chamados de falta de produto (Aurélia Cosméticos)"
+      source_code_path: ${workspace.file_path}/backend
+      resources:
+        - name: whisper
+          description: Endpoint Whisper para transcrição
+          serving_endpoint:
+            name: ${var.whisper_endpoint}
+            permission: CAN_QUERY
+        - name: llm
+          description: Foundation Model API para análise
+          serving_endpoint:
+            name: ${var.llm_endpoint}
+            permission: CAN_QUERY
+        - name: warehouse
+          description: SQL Warehouse usado pelo dashboard / queries
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+
+targets:
+  ft:
+    mode: development
+    default: true
+    presets:
+      name_prefix: ""
+    workspace:
+      host: https://fevm-field-toolbox.cloud.databricks.com
+      profile: field-toolbox

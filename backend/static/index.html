@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aurélia · Speech Analytics</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <span class="dot"></span>
+        <h1>Aurélia · Speech Analytics</h1>
+        <nav class="app-nav">
+          <button class="nav-tab active" data-page="dashboard">📊 Dashboard</button>
+          <button class="nav-tab" data-page="upload">📤 Upload</button>
+          <button class="nav-tab" data-page="config">⚙️ Configurar</button>
+          <button class="nav-tab" data-page="record">🎙️ Gravar</button>
+          <button class="nav-tab" data-page="architecture">🏗️ Arquitetura</button>
+        </nav>
+      </header>
+
+      <!-- ============ Dashboard (default) ============ -->
+      <section id="page-dashboard">
+        <div class="dash-header">
+          <div>
+            <h2 style="margin-bottom: 4px">Painel de análise de chamadas</h2>
+            <p class="subtitle" style="margin: 0">
+              Visão consolidada das chamadas de consultoras Aurélia — projeto PPM Falta.
+            </p>
+          </div>
+          <div class="dash-actions">
+            <span id="dash-updated" class="dash-updated">—</span>
+            <button class="ghost" id="dash-refresh">↻ Atualizar</button>
+          </div>
+        </div>
+
+        <!-- KPIs -->
+        <div id="kpi-row" class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">Total de chamadas</div>
+            <div class="kpi-value" id="kpi-total">—</div>
+            <div class="kpi-sub" id="kpi-total-sub">no volume</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Já analisadas</div>
+            <div class="kpi-value" id="kpi-analyzed">—</div>
+            <div class="kpi-sub" id="kpi-analyzed-sub">com Claude</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Pendentes</div>
+            <div class="kpi-value" id="kpi-pending">—</div>
+            <div class="kpi-sub">aguardando processamento</div>
+          </div>
+          <div class="kpi-card alert clickable" data-filter="fraude" title="Clique para filtrar a lista">
+            <div class="kpi-label">Suspeita de fraude</div>
+            <div class="kpi-value" id="kpi-fraud">—</div>
+            <div class="kpi-sub" id="kpi-fraud-sub">do total analisado</div>
+          </div>
+          <div class="kpi-card warn">
+            <div class="kpi-label">Reincidência</div>
+            <div class="kpi-value" id="kpi-rein">—</div>
+            <div class="kpi-sub">consultora menciona problema repetido</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Risco médio de churn</div>
+            <div class="kpi-value" id="kpi-churn">—</div>
+            <div class="kpi-sub">0 = baixo · 1 = alto</div>
+          </div>
+        </div>
+
+        <!-- Charts row -->
+        <div class="dash-grid-2">
+          <div class="card chart-card">
+            <h3>Tipos de problema</h3>
+            <div id="chart-tipo" class="chart-bars"></div>
+          </div>
+          <div class="card chart-card">
+            <h3>Distribuição de sentimento</h3>
+            <div id="chart-sent" class="chart-bars"></div>
+          </div>
+        </div>
+
+        <div class="dash-grid-2">
+          <div class="card chart-card">
+            <h3>Top consultoras com mais chamadas</h3>
+            <div id="top-cons" class="data-table-wrap">
+              <p style="color: var(--db-muted)">Sem dados ainda</p>
+            </div>
+          </div>
+          <div class="card chart-card">
+            <h3>Top produtos faltantes</h3>
+            <div id="top-prod" class="data-table-wrap">
+              <p style="color: var(--db-muted)">Sem dados ainda</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lista filtrável -->
+        <div class="card">
+          <div class="dash-list-header">
+            <h3 style="margin: 0">Chamadas — visão detalhada</h3>
+            <div class="filters">
+              <select id="filter-tipo" title="Tipo do problema (classificação principal)">
+                <option value="">Todos os tipos</option>
+                <option value="atraso">Atraso na entrega</option>
+                <option value="falta_parcial">Falta de produto</option>
+                <option value="violacao_caixa">Violação de caixa</option>
+                <option value="outro">Outro</option>
+              </select>
+              <select id="filter-fraude" title="Indicação de fraude (flag separada do tipo)">
+                <option value="">Suspeita de fraude: todas</option>
+                <option value="true">Apenas com suspeita</option>
+                <option value="false">Sem suspeita</option>
+              </select>
+              <select id="filter-source">
+                <option value="">Toda origem</option>
+                <option value="upload">Upload no portal</option>
+                <option value="recording">Gravação no portal</option>
+                <option value="landing">Drop direto no volume</option>
+              </select>
+            </div>
+          </div>
+          <div id="calls-list" class="calls-list">
+            <p style="color: var(--db-muted)">Carregando…</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ Drill-down (modal sobre o dashboard) ============ -->
+      <div id="call-modal" class="call-modal" style="display: none">
+        <div class="call-modal-card">
+          <div class="call-modal-header">
+            <div>
+              <div class="muted">Chamada</div>
+              <h3 id="cm-title">—</h3>
+            </div>
+            <button class="ghost" id="cm-close">✕ Fechar</button>
+          </div>
+
+          <div class="call-modal-body">
+            <div class="cm-left">
+              <div class="card cm-card">
+                <h4>🎧 Áudio</h4>
+                <audio id="cm-audio" controls preload="none" style="width: 100%"></audio>
+                <div class="cm-meta">
+                  <span id="cm-format">—</span> ·
+                  <span id="cm-source">—</span> ·
+                  <span id="cm-ingested">—</span>
+                </div>
+              </div>
+
+              <div class="card cm-card">
+                <h4>📝 Transcrição completa</h4>
+                <div id="cm-transcript" class="transcript-box">—</div>
+              </div>
+            </div>
+
+            <div class="cm-right">
+              <div class="card cm-card">
+                <h4>🚨 Classificação PPM Falta</h4>
+                <div class="ppm-grid">
+                  <div><span class="muted">Tipo</span><strong id="cm-tipo">—</strong></div>
+                  <div><span class="muted">Fraude</span><strong id="cm-fraude">—</strong></div>
+                  <div><span class="muted">Reincidência</span><strong id="cm-rein">—</strong></div>
+                  <div><span class="muted">Churn</span><strong id="cm-churn">—</strong></div>
+                  <div><span class="muted">Consultora</span><strong id="cm-cons">—</strong></div>
+                  <div><span class="muted">Pedido</span><strong id="cm-ped">—</strong></div>
+                </div>
+
+                <div class="conf-block">
+                  <div class="conf-head">
+                    <span class="muted">Confiança do modelo na suspeita</span>
+                    <strong id="cm-fraude-conf">—</strong>
+                  </div>
+                  <div class="conf-track">
+                    <div id="cm-fraude-conf-bar" class="conf-bar" style="width: 0%"></div>
+                  </div>
+                  <div class="conf-note">
+                    Quanto esta ligação, sozinha, sustenta a suspeita — autodeclarado
+                    pelo modelo, não é probabilidade calibrada. Separa bem o caso
+                    explícito do resto, mas não ranqueia os casos duvidosos entre si:
+                    trate como leitura de apoio, nunca como veredito.
+                  </div>
+                </div>
+              </div>
+
+              <div class="card cm-card">
+                <h4>💭 Sentimento &amp; intenção</h4>
+                <div class="ppm-grid">
+                  <div><span class="muted">Sentimento</span><strong id="cm-sent">—</strong></div>
+                  <div><span class="muted">Emoção</span><strong id="cm-emo">—</strong></div>
+                  <div><span class="muted">Intenção</span><strong id="cm-int">—</strong></div>
+                  <div><span class="muted">Compliance</span><strong id="cm-comp">—</strong></div>
+                </div>
+                <div id="cm-comp-reason" class="muted" style="margin-top: 8px"></div>
+              </div>
+
+              <div class="card cm-card">
+                <h4>🔍 Indicadores e produtos</h4>
+                <div class="muted">Indicadores de fraude</div>
+                <ul id="cm-fraude-ind" class="bullets"></ul>
+                <div class="muted" style="margin-top: 12px">Produtos faltantes</div>
+                <ul id="cm-prod" class="bullets"></ul>
+                <div class="muted" style="margin-top: 12px">Tópicos</div>
+                <ul id="cm-topics" class="bullets"></ul>
+              </div>
+
+              <div class="card cm-card">
+                <h4>📋 Resumo executivo</h4>
+                <p id="cm-summary">—</p>
+                <h4 style="margin-top: 12px">→ Próxima ação</h4>
+                <p id="cm-next">—</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ Upload ============ -->
+      <section id="page-upload" style="display: none">
+        <h2>Upload de áudios</h2>
+        <p class="subtitle">
+          Arraste os arquivos <code>.wav</code>, <code>.mp3</code> ou <code>.m4a</code> ou
+          clique para selecionar. Os áudios vão direto para o volume Unity Catalog.
+        </p>
+
+        <div class="card">
+          <div id="dropzone" class="dropzone">
+            <div class="dropzone-icon">📤</div>
+            <div class="dropzone-label">Solte os arquivos aqui ou clique para escolher</div>
+            <div class="dropzone-hint">.wav · .mp3 · .m4a · até 200 MB cada</div>
+            <input type="file" id="file-input" accept=".wav,.mp3,.m4a,audio/*" multiple hidden />
+          </div>
+          <div id="upload-list" class="upload-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="dash-list-header">
+            <h3 style="margin: 0">Processamento</h3>
+            <div class="dash-actions">
+              <span id="proc-status-pill" class="pill">idle</span>
+              <button id="btn-process">▶ Processar pendentes</button>
+            </div>
+          </div>
+          <p style="color: var(--db-muted); font-size: 14px">
+            O processamento dispara o <strong>pipeline imperativo</strong> (Bronze → Silver → Gold)
+            como Job Serverless. Só os áudios novos são transcritos. Acompanhe abaixo:
+          </p>
+          <div id="proc-log" class="proc-log">
+            <span class="muted">Sem execução nesta sessão.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ Tela 1: configuração ============ -->
+      <section id="page-config" style="display: none">
+        <h2>Configurar análise</h2>
+        <p class="subtitle">
+          Escolha o que extrair do áudio. Marque análises pré-configuradas e/ou
+          adicione perguntas livres em português.
+        </p>
+
+        <div id="config-error" class="error-box" style="display: none"></div>
+
+        <div class="card">
+          <h3>Análises pré-configuradas</h3>
+          <div id="presets-grid" class="preset-grid">
+            <p style="color: var(--db-muted)">Carregando…</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Perguntas customizadas (opcional)</h3>
+          <p style="color: var(--db-muted); font-size: 13px; margin-bottom: 12px">
+            Ex.: "O agente ofereceu produto da linha Raízes?", "Houve menção a
+            desconto?"
+          </p>
+          <div id="questions-list"></div>
+          <button type="button" class="ghost" id="add-question-btn">
+            + Adicionar pergunta
+          </button>
+        </div>
+
+        <div class="actions">
+          <div></div>
+          <button id="continue-btn" disabled>Continuar para gravação →</button>
+        </div>
+      </section>
+
+      <!-- ============ Tela 2: gravação ============ -->
+      <section id="page-record" style="display: none">
+        <h2>Gravar e transcrever</h2>
+        <p class="subtitle">
+          Clique no botão para gravar. A transcrição aparece em tempo real —
+          quando parar, rodamos a análise.
+        </p>
+
+        <div id="record-error" class="error-box" style="display: none"></div>
+
+        <div class="card">
+          <div class="recorder">
+            <button
+              id="rec-button"
+              class="rec-button"
+              aria-label="Iniciar gravação"
+            >
+              <span class="icon"></span>
+            </button>
+            <div id="rec-status" class="rec-status">Pronto para gravar</div>
+            <div id="timer" class="timer">00:00</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Transcrição em tempo real</h3>
+          <div id="transcript-box" class="transcript-box empty">
+            A transcrição aparecerá aqui conforme você fala…
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Análise inteligente</h3>
+          <div id="analysis-empty" style="color: var(--db-muted); font-size: 14px">
+            Pare a gravação para habilitar a análise.
+          </div>
+          <div id="analysis-loading" style="display: none">
+            <span class="spinner"></span> Analisando com Claude Sonnet 4.6…
+          </div>
+          <div id="analysis-result" class="analysis-grid" style="display: none"></div>
+          <div id="analysis-error" class="error-box" style="display: none"></div>
+          <div style="margin-top: 16px">
+            <button id="analyze-btn" disabled>Analisar transcrição</button>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="ghost" id="back-btn">← Voltar para configuração</button>
+          <div></div>
+        </div>
+      </section>
+
+      <!-- ============ Tela 3: arquitetura ============ -->
+      <section id="page-architecture" style="display: none">
+        <h2>Arquitetura da solução</h2>
+        <p class="subtitle">
+          Tudo roda na Databricks Intelligence Platform — sem mover dados entre
+          vendors, com governança end-to-end via Unity Catalog.
+        </p>
+
+        <!-- ===== Demo atual ===== -->
+        <div class="card">
+          <h3>O que está rodando nesta demo</h3>
+          <p style="color: var(--db-muted); font-size: 14px; margin-bottom: 20px">
+            Padrão real-time: WebSocket cumulativo entre o navegador e um
+            Databricks App, com Whisper em GPU e Claude para análise.
+          </p>
+
+          <div class="arch-diagram">
+            <div class="arch-row">
+              <div class="arch-node browser">
+                <div class="arch-icon">🌐</div>
+                <div class="arch-name">Navegador</div>
+                <div class="arch-sub">MediaRecorder · WebM/Opus</div>
+              </div>
+              <div class="arch-arrow">
+                <span class="arch-arrow-label">WebSocket binário</span>→
+              </div>
+              <div class="arch-node app">
+                <div class="arch-icon">⚡</div>
+                <div class="arch-name">Databricks App</div>
+                <div class="arch-sub">FastAPI · PyAV · OAuth</div>
+              </div>
+            </div>
+            <div class="arch-row">
+              <div class="arch-spacer"></div>
+              <div class="arch-down">↓ <span class="arch-arrow-label">REST + JSON Schema</span></div>
+              <div class="arch-spacer"></div>
+            </div>
+            <div class="arch-row">
+              <div class="arch-node serving">
+                <div class="arch-icon">🎙️</div>
+                <div class="arch-name">Mosaic AI Model Serving</div>
+                <div class="arch-sub">Whisper Large V3 Turbo · GPU_MEDIUM</div>
+                <div class="arch-pills">
+                  <span class="pill orange">scale-to-zero</span>
+                  <span class="pill orange">A10G</span>
+                </div>
+              </div>
+              <div class="arch-arrow">+</div>
+              <div class="arch-node fmapi">
+                <div class="arch-icon">🧠</div>
+                <div class="arch-name">Foundation Model API</div>
+                <div class="arch-sub">databricks-claude-sonnet-4-6</div>
+                <div class="arch-pills">
+                  <span class="pill orange">JSON Schema</span>
+                  <span class="pill orange">pay-per-token</span>
+                </div>
+              </div>
+            </div>
+            <div class="arch-row">
+              <div class="arch-spacer"></div>
+              <div class="arch-down">↓</div>
+              <div class="arch-spacer"></div>
+            </div>
+            <div class="arch-row">
+              <div class="arch-node uc full">
+                <div class="arch-icon">🏛️</div>
+                <div class="arch-name">Unity Catalog</div>
+                <div class="arch-sub">
+                  Governança · Lineage · OAuth do app · Modelo registrado em
+                  <code>field_toolbox_catalog.speech_analytics.whisper_large_v3_turbo</code>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h4 style="margin-top: 24px">Componentes Databricks usados</h4>
+          <div class="comp-grid">
+            <div class="comp">
+              <div class="comp-name">Databricks Apps</div>
+              <div class="comp-desc">Hosting do FastAPI + frontend, OAuth automático, escala gerenciada</div>
+            </div>
+            <div class="comp">
+              <div class="comp-name">Mosaic AI Model Serving</div>
+              <div class="comp-desc">Endpoint GPU para Whisper Turbo com scale-to-zero</div>
+            </div>
+            <div class="comp">
+              <div class="comp-name">Foundation Model API</div>
+              <div class="comp-desc">Claude Sonnet 4.6 pay-per-token, sem gerenciar infra</div>
+            </div>
+            <div class="comp">
+              <div class="comp-name">Unity Catalog</div>
+              <div class="comp-desc">Registry do modelo Whisper, controle de acesso ao endpoint</div>
+            </div>
+            <div class="comp">
+              <div class="comp-name">MLflow</div>
+              <div class="comp-desc">Empacotamento do Whisper como pyfunc + tracking</div>
+            </div>
+            <div class="comp">
+              <div class="comp-name">Asset Bundles (DAB)</div>
+              <div class="comp-desc">Deploy declarativo do app + permissões de endpoint</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Outras arquiteturas ===== -->
+        <h3 style="font-size: 22px; margin: 32px 0 12px; color: var(--db-text); text-transform: none; letter-spacing: 0">
+          Outras arquiteturas para Speech Analytics
+        </h3>
+        <p class="subtitle" style="margin-bottom: 16px">
+          O mesmo workspace cobre os 3 padrões — escolha o certo para cada caso de uso.
+        </p>
+
+        <!-- Batch -->
+        <div class="card arch-alt">
+          <div class="arch-alt-header">
+            <span class="arch-tag batch">BATCH · D+1 / horário</span>
+            <h3 style="color: var(--db-blue)">📦 Processamento em massa</h3>
+          </div>
+          <p style="font-size: 14px; color: var(--db-muted); margin-bottom: 12px">
+            Pipeline diário que processa todas as chamadas do dia anterior. Ideal para
+            análises retroativas, backfill histórico e relatórios gerenciais.
+          </p>
+          <div class="arch-flow">
+            <div class="arch-step">📁 UC Volumes</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">🔄 Auto Loader</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">⚡ pandas_udf + Whisper</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">🗃️ Delta Silver</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">🤖 ai_query SQL</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">📊 Delta Gold</div>
+          </div>
+          <div class="comp-grid">
+            <div class="comp"><div class="comp-name">Jobs / Workflows</div><div class="comp-desc">Orquestração diária serverless</div></div>
+            <div class="comp"><div class="comp-name">Auto Loader</div><div class="comp-desc">Ingestão incremental de WAV/MP3 do storage</div></div>
+            <div class="comp"><div class="comp-name">Spark + pandas_udf</div><div class="comp-desc">Whisper paralelizado em todos os workers</div></div>
+            <div class="comp"><div class="comp-name">Delta Lake (Bronze/Silver/Gold)</div><div class="comp-desc">Arquitetura medallion governada</div></div>
+            <div class="comp"><div class="comp-name">AI Functions (ai_query, ai_classify, ai_mask)</div><div class="comp-desc">Análise LLM em SQL puro, sem Python</div></div>
+            <div class="comp"><div class="comp-name">AI/BI Dashboards + Genie</div><div class="comp-desc">Consumo final por gestores</div></div>
+          </div>
+          <p style="font-size: 13px; color: var(--db-muted); margin-top: 12px">
+            <strong>Quando usar</strong>: análise diária consolidada, refazer análises com novos prompts,
+            backfill de meses de histórico, treinamento de modelos.
+          </p>
+        </div>
+
+        <!-- Streaming -->
+        <div class="card arch-alt">
+          <div class="arch-alt-header">
+            <span class="arch-tag stream">STREAMING · segundos a minutos</span>
+            <h3 style="color: var(--db-green)">🌊 Near real-time</h3>
+          </div>
+          <p style="font-size: 14px; color: var(--db-muted); margin-bottom: 12px">
+            Plataforma de telefonia envia chunks contínuos para Kafka. Lakeflow consome,
+            transcreve, classifica, e dispara ações sem operação manual.
+          </p>
+          <div class="arch-flow">
+            <div class="arch-step">📞 Telefonia</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">🔥 Kafka / Event Hub</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">⚡ Structured Streaming</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">🎙️ Whisper Serving</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">🤖 ai_query streaming</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">🔔 Webhook / Slack</div>
+          </div>
+          <div class="comp-grid">
+            <div class="comp"><div class="comp-name">Lakeflow / Spark Declarative Pipelines</div><div class="comp-desc">Pipeline streaming declarativo, exactly-once</div></div>
+            <div class="comp"><div class="comp-name">Structured Streaming</div><div class="comp-desc">Mesmo SDK do batch, com checkpoints</div></div>
+            <div class="comp"><div class="comp-name">Kafka / Event Hubs / Kinesis</div><div class="comp-desc">Ingestão de chunks de áudio em tempo real</div></div>
+            <div class="comp"><div class="comp-name">Streaming Tables / Materialized Views</div><div class="comp-desc">Resultados sempre frescos para dashboards</div></div>
+            <div class="comp"><div class="comp-name">Mosaic AI Model Serving</div><div class="comp-desc">Whisper + LLM em endpoints com autoscaling</div></div>
+            <div class="comp"><div class="comp-name">Real-Time Mode (RTM)</div><div class="comp-desc">Latência sub-segundo para casos extremos</div></div>
+          </div>
+          <p style="font-size: 13px; color: var(--db-muted); margin-top: 12px">
+            <strong>Quando usar</strong>: alerta a supervisor durante chamada problemática,
+            próxima-melhor-ação ao agente, monitor de compliance ao vivo, dashboards operacionais.
+          </p>
+        </div>
+
+        <!-- Real-time interativo (esta demo) -->
+        <div class="card arch-alt">
+          <div class="arch-alt-header">
+            <span class="arch-tag interactive">INTERATIVO · esta demo</span>
+            <h3 style="color: var(--db-orange)">🎙️ Aplicação real-time com usuário</h3>
+          </div>
+          <p style="font-size: 14px; color: var(--db-muted); margin-bottom: 12px">
+            App web com WebSocket onde um usuário grava áudio e recebe transcrição
+            em ~2-4s, depois aciona análise sob demanda. Padrão para POCs, ferramentas
+            internas e produtos voltados a usuário final.
+          </p>
+          <div class="arch-flow">
+            <div class="arch-step">🌐 Browser</div>
+            <span class="arch-flow-arrow">↔</span>
+            <div class="arch-step">⚡ Databricks App</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">🎙️ Whisper Serving</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">🧠 Claude FM API</div>
+            <span class="arch-flow-arrow">→</span>
+            <div class="arch-step">📺 UI</div>
+          </div>
+          <div class="comp-grid">
+            <div class="comp"><div class="comp-name">Databricks Apps</div><div class="comp-desc">Hosting do app web com OAuth automático</div></div>
+            <div class="comp"><div class="comp-name">Mosaic AI Model Serving (GPU)</div><div class="comp-desc">Whisper Turbo com scale-to-zero</div></div>
+            <div class="comp"><div class="comp-name">Foundation Model API</div><div class="comp-desc">Claude Sonnet 4.6 com JSON Schema</div></div>
+            <div class="comp"><div class="comp-name">Unity Catalog</div><div class="comp-desc">Governança de modelo + endpoint</div></div>
+            <div class="comp"><div class="comp-name">Asset Bundles (DAB)</div><div class="comp-desc">Deploy do app + permissões de endpoints</div></div>
+            <div class="comp"><div class="comp-name">MLflow</div><div class="comp-desc">Versionamento e empacotamento do modelo</div></div>
+          </div>
+          <p style="font-size: 13px; color: var(--db-muted); margin-top: 12px">
+            <strong>Quando usar</strong>: ferramentas internas (coaching de agentes em treinamento),
+            POCs e provas de conceito, demos para stakeholders, anotação manual de chamadas.
+          </p>
+        </div>
+      </section>
+
+      <div class="footer">
+        Powered by Whisper Large V3 Turbo + Claude Sonnet 4.6 · Databricks Mosaic AI
+      </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
