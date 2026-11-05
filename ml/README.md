@@ -7,6 +7,7 @@ de investigação abrir primeiro os casos que mais valem a pena. Lê
 | Arquivo | O que faz |
 |---|---|
 | `01_treinar_modelo.py` | treina três candidatos, compara no mesmo teste, registra o campeão no UC |
+| `modelo_fraude.py` | o wrapper pyfunc que devolve a probabilidade; vai com o modelo por `code_paths` |
 | `02_pontuar_chamados.py` | pontua todos os chamados e grava a fila priorizada |
 
 ```
@@ -19,8 +20,8 @@ gold_features_chamado ──► 01_treinar_modelo ──► field_toolbox_catalo
          fila_priorizada
 ```
 
-O job `aurelia-speech-diario` roda o pipeline e depois a pontuação (agendado às
-6h, pausado). O treino roda à parte: retreinar todo dia sem rótulo novo só troca
+O job `aurelia-speech-diario` roda o pipeline, a pontuação e o refresh da fila no
+Lakebase (agendado às 6h, pausado). O treino roda à parte: retreinar todo dia sem rótulo novo só troca
 um modelo por outro igual.
 
 ## Como o modelo é treinado
@@ -29,32 +30,38 @@ um modelo por outro igual.
   chamados fechados). A política investiga mais o que é caro e reincidente, então o
   modelo aprende a fraude que a investigação costuma achar — viés que está dito no
   README do gerador.
-- **Teste temporal.** Os 25% investigados mais recentes ficam de fora (desde
-  09/06/2026). Sorteio misturaria futuro e passado e daria uma métrica otimista.
+- **Rótulo de duas fontes.** A investigação formal e, onde ela não houve, a decisão
+  do analista no app, que volta do Lakebase pelo CDF (`origem_rotulo`).
+- **Teste temporal, cortado por data.** Os chamados investigados a partir de
+  09/06/2026 ficam de fora. Sorteio misturaria futuro e passado e daria uma métrica
+  otimista.
 - **Gradient boosting com calibração isotônica.** O GBM ordena; a calibração
   corrige a escala para "0,7" significar sete em dez. A `fraude_confianca` que o LLM
   declara não tem essa propriedade.
-- **Três candidatos no mesmo teste**, e o completo só é campeão se somar 0,01 de
-  PR-AUC: depender da ligação tem custo, e empate não paga.
+- **Três candidatos no mesmo teste**, e o completo só é campeão se o ganho de
+  PR-AUC sobre o operacional for real: intervalo de 95% de um bootstrap pareado
+  (1.000 reamostras do teste) inteiro acima de zero. Depender da ligação tem custo,
+  e ruído não paga.
 
-## Resultado (teste temporal: 507 chamados, 14% de fraude)
+## Resultado (teste temporal: 512 chamados, 14% de fraude)
 
-| Candidato | PR-AUC | ROC-AUC | Precisão nos 50 primeiros | Brier |
-|---|---|---|---|---|
-| LLM sozinho (`fraude_confianca`) | 0,18 | 0,59 | 30% | 0,155 |
-| Operacional | **0,82** | 0,97 | **88%** | 0,044 |
-| Completo (operacional + ligação) | 0,81 | 0,97 | 86% | 0,045 |
+| Candidato | PR-AUC | Precisão nos 50 primeiros | Brier |
+|---|---|---|---|
+| LLM sozinho (`fraude_confianca`) | 0,18 | 30% | 0,157 |
+| Operacional | **0,83** | **88%** | 0,044 |
+| Completo (operacional + ligação) | 0,83 | 84% | 0,044 |
 
-Campeão: **operacional**, versão 2.
+Ganho do completo sobre o operacional: −0,001 de PR-AUC, IC 95% de −0,022 a
++0,021. Campeão: **operacional**, versão 5, servido em `aurelia-fraude-chamado`.
 
 Na fila aberta (564 chamados, 10% de fraude pelo gabarito do gerador), em ordem de
 score:
 
 | Primeiros | Fraude real | Fraudes achadas de 58 | Valor em fraude na frente |
 |---|---|---|---|
-| 20 | 100% | 20 | R$ 10,2 mil |
-| 50 | 92% | 46 | R$ 20,2 mil |
-| 100 | 57% | 57 | R$ 23,0 mil de R$ 23,2 mil |
+| 20 | 100% | 20 | R$ 11,4 mil |
+| 50 | 96% | 48 | R$ 21,7 mil |
+| 100 | 58% | 58 | todos os R$ 23,2 mil |
 
 ## Por que a ligação ficou fora do score
 
@@ -80,6 +87,18 @@ analista. Cada decisão dele sobre um chamado com ligação é um rótulo que fa
 com algumas centenas, o completo deve passar o operacional.
 
 ## Armadilhas
+
+- **O corte por posição fazia a métrica oscilar.** Ordenar por data com sort
+  instável e cortar nos 75% mandava os chamados do mesmo dia na fronteira para o
+  treino ou para o teste conforme a ordem em que o Spark devolvia as linhas. A
+  PR-AUC variava ~0,02 entre execuções com o mesmo dado — mais que a diferença
+  entre os candidatos. Uma rodada chegou a eleger o completo com 0,840 contra
+  0,812. O corte agora é por data, com desempate por id, e duas execuções seguidas
+  dão o mesmo número.
+- **Classe definida no notebook não atravessa versão de Python.** O cloudpickle
+  guarda por valor o código do wrapper; salvo num serverless com 3.10, o modelo
+  não carregava no job com 3.12 (`code() argument 13 must be str, not int`). O
+  wrapper mora em `modelo_fraude.py` e vai por `code_paths`, guardado por referência.
 
 - **Decimal e booleano com nulo chegam do Spark como `object`.** O wrapper converte
   com `pd.to_numeric`, mas booleano com `None` precisa de `astype("float64")` antes.

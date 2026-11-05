@@ -15,8 +15,9 @@
 # MAGIC | `operacional` | chamado, entrega, peso, histórico e rota, sem a ligação |
 # MAGIC | `completo` | o operacional e o sinal da ligação |
 # MAGIC
-# MAGIC O completo só é campeão se somar ao menos 0,01 de PR-AUC: depender da
-# MAGIC ligação tem custo (o gold precisa estar em dia), e empate não paga esse custo.
+# MAGIC O completo só é campeão se o ganho de PR-AUC sobre o operacional for real:
+# MAGIC intervalo de 95% de um bootstrap pareado inteiro acima de zero. Depender da
+# MAGIC ligação tem custo (o gold precisa estar em dia), e ruído não paga esse custo.
 # MAGIC O campeão é registrado no Unity Catalog com o alias `campeao`. A saída é uma
 # MAGIC probabilidade calibrada: o analista lê "0,7" como sete em dez, e o número que o
 # MAGIC LLM autodeclara não sustenta essa leitura.
@@ -36,7 +37,7 @@ CATALOG = dbutils.widgets.get("catalog")
 SCHEMA = dbutils.widgets.get("schema")
 NOME_MODELO = f"{CATALOG}.{SCHEMA}.modelo_fraude_chamado"
 K = 50  # chamados que o time de investigação consegue abrir por ciclo
-GANHO_MINIMO = 0.01  # PR-AUC que a ligação precisa somar para valer a dependência dela
+REAMOSTRAS = 1000  # bootstrap pareado do ganho de PR-AUC do completo sobre o operacional
 
 import mlflow
 import numpy as np
@@ -73,11 +74,15 @@ for c in NUMERICAS + NUMERICAS_LIGACAO:
 for c in CATEGORICAS + CATEGORICAS_LIGACAO:
     df[c] = df[c].astype("string").fillna("ausente")
 
-rotulado = df[df["rotulo_fraude"].notna()].sort_values("data_abertura").reset_index(drop=True)
-corte = int(len(rotulado) * 0.75)
-treino, teste = rotulado.iloc[:corte], rotulado.iloc[corte:]
+# Corte por data, não por posição: com sort instável, chamados do mesmo dia na
+# fronteira trocavam de lado conforme a ordem em que o Spark devolve as linhas,
+# e a PR-AUC oscilava ~0,02 entre execuções com o mesmo dado.
+rotulado = (df[df["rotulo_fraude"].notna()]
+            .sort_values(["data_abertura", "chamado_id"], kind="mergesort").reset_index(drop=True))
+data_corte = rotulado["data_abertura"].iloc[int(len(rotulado) * 0.75)]
+treino = rotulado[rotulado["data_abertura"] < data_corte]
+teste = rotulado[rotulado["data_abertura"] >= data_corte]
 y_treino, y_teste = treino["rotulo_fraude"].astype(int), teste["rotulo_fraude"].astype(int)
-data_corte = teste["data_abertura"].min()
 print(f"rotulados: {len(rotulado)} · treino {len(treino)} até {treino['data_abertura'].max()} "
       f"· teste {len(teste)} desde {data_corte} · prevalência no teste {y_teste.mean():.1%}")
 
@@ -110,20 +115,7 @@ def montar(categoricas, numericas):
     return CalibratedClassifierCV(base, method="isotonic", cv=5)
 
 
-class ModeloFraude(mlflow.pyfunc.PythonModel):
-    """Devolve a probabilidade calibrada de fraude, não a classe."""
-
-    def __init__(self, modelo, colunas_cat, colunas_num):
-        self.modelo, self.colunas_cat, self.colunas_num = modelo, colunas_cat, colunas_num
-
-    def predict(self, context, entrada: pd.DataFrame, params=None) -> pd.DataFrame:
-        x = entrada.copy()
-        for c in self.colunas_num:
-            x[c] = pd.to_numeric(x[c], errors="coerce").astype("float64") if c in x else np.nan
-        for c in self.colunas_cat:
-            x[c] = x[c].astype("string").fillna("ausente") if c in x else "ausente"
-        p = self.modelo.predict_proba(x[self.colunas_cat + self.colunas_num])[:, 1]
-        return pd.DataFrame({"score_fraude": p})
+from modelo_fraude import ModeloFraude  # módulo ao lado do notebook; vai junto por code_paths
 
 # COMMAND ----------
 
@@ -160,10 +152,24 @@ display(comparacao.round(3).reset_index().rename(columns={"index": "candidato"})
 # COMMAND ----------
 
 # DBTITLE 1,Curvas e importância do campeão
-# O completo depende do gold da ligação estar em dia; só vale se pagar por isso.
+# O completo depende do gold da ligação estar em dia; só vale se o ganho for
+# real. Bootstrap pareado: as mesmas reamostras do teste para os dois modelos,
+# e o completo só vence se o intervalo de 95% do ganho ficar acima de zero.
+sorteio = np.random.default_rng(0)
+yv = y_teste.to_numpy()
+p_op, p_co = modelos["operacional"][3], modelos["completo"][3]
+ganhos = []
+for _ in range(REAMOSTRAS):
+    i = sorteio.integers(0, len(yv), len(yv))
+    if yv[i].sum() == 0:
+        continue
+    ganhos.append(average_precision_score(yv[i], p_co[i]) - average_precision_score(yv[i], p_op[i]))
 ganho = resultados["completo"]["pr_auc"] - resultados["operacional"]["pr_auc"]
-campeao = "completo" if ganho >= GANHO_MINIMO else "operacional"
-print(f"ganho da ligação em PR-AUC: {ganho:+.3f} → campeão: {campeao}")
+ic_inf, ic_sup = np.percentile(ganhos, [2.5, 97.5])
+campeao = "completo" if ic_inf > 0 else "operacional"
+with mlflow.start_run(run_id=modelos["completo"][4]):
+    mlflow.log_metrics({"ganho_pr_auc": ganho, "ganho_ic95_inf": ic_inf, "ganho_ic95_sup": ic_sup})
+print(f"ganho da ligação em PR-AUC: {ganho:+.3f} (IC 95% {ic_inf:+.3f} a {ic_sup:+.3f}) → campeão: {campeao}")
 modelo, cats, nums, p_camp, run_id = modelos[campeao]
 
 fig, eixos = plt.subplots(1, 3, figsize=(18, 5))
@@ -207,12 +213,14 @@ with mlflow.start_run(run_id=run_id):
         input_example=exemplo,
         registered_model_name=NOME_MODELO,
         pip_requirements=["mlflow>=3.1", "scikit-learn==1.6.1", "pandas", "numpy"],
+        code_paths=["modelo_fraude.py"],
     )
 versao = info.registered_model_version
 cliente = mlflow.MlflowClient()
 cliente.set_registered_model_alias(NOME_MODELO, "campeao", versao)
 cliente.update_model_version(NOME_MODELO, versao, description=(
     f"Candidato '{campeao}'. Teste temporal desde {data_corte}: PR-AUC {resultados[campeao]['pr_auc']:.3f}, "
+    f"ganho do completo sobre o operacional {ganho:+.3f} (IC 95% {ic_inf:+.3f} a {ic_sup:+.3f}), "
     f"precisão nos {K} primeiros {resultados[campeao][f'precisao_top{K}']:.0%}. "
     "Saída: probabilidade calibrada (isotônica) de fraude confirmada."))
 print(f"{NOME_MODELO} v{versao} @campeao ({campeao})")
