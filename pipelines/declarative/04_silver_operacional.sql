@@ -112,3 +112,22 @@ TBLPROPERTIES ('quality' = 'silver')
 AS
 SELECT call_id, chamado_id, data_hora, duracao_s, origem, arquivo
 FROM bronze_ligacoes;
+
+-- Decisões do analista, gravadas pelo app no Lakebase e replicadas no UC pelo
+-- CDF (`${decisoes_lakebase}`, um histórico de mudanças com _pg_change_type).
+-- Primeiro a última versão de cada decisão (apagada sai), depois a decisão
+-- mais recente de cada chamado. As de origem 'simulacao' são teste e não
+-- viram rótulo.
+CREATE OR REFRESH MATERIALIZED VIEW silver_decisoes_analista
+COMMENT 'Decisão vigente do analista por chamado, vinda do Lakebase.'
+TBLPROPERTIES ('quality' = 'silver')
+AS
+WITH versao_final AS (
+  SELECT *
+  FROM ${decisoes_lakebase}
+  QUALIFY row_number() OVER (PARTITION BY decisao_id ORDER BY _pg_lsn DESC, _sort_by DESC) = 1
+)
+SELECT chamado_id, decisao, analista, comentario, score_no_momento, modelo_versao, decidido_em
+FROM versao_final
+WHERE _pg_change_type <> 'delete' AND origem = 'app'
+QUALIFY row_number() OVER (PARTITION BY chamado_id ORDER BY decidido_em DESC, decisao_id DESC) = 1;

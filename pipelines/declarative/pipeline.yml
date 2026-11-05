@@ -34,3 +34,4 @@ resources:
         volume_operacional: operacional
         whisper_endpoint:   ${var.whisper_endpoint}
         llm_endpoint:       ${var.llm_endpoint}
+        decisoes_lakebase:  ${var.catalog}.aurelia_speech_investigacao.lb_decisoes_history

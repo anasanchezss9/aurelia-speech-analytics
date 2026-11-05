@@ -62,6 +62,9 @@ WITH base AS (
   JOIN silver_entregas e     USING (pedido_numero)
   JOIN silver_consultoras k  ON k.consultora_codigo = c.consultora_codigo
 ),
+decisao AS (
+  SELECT chamado_id, decisao AS decisao_analista, decidido_em FROM silver_decisoes_analista
+),
 chamados_anteriores AS (
   SELECT
     chamado_id,
@@ -143,16 +146,24 @@ SELECT
   l.n_sinais_relato                                                     AS llm_n_sinais_relato,
   l.relato_consistente                                                  AS llm_relato_consistente,
 
-  -- O rótulo: só existe onde houve investigação
+  -- O rótulo: a investigação formal e, onde ela não houve, a decisão do analista
+  -- no app. "Pedir evidência" ainda não é decisão e não rotula.
   b.resultado,
-  CASE WHEN b.resultado IS NULL THEN NULL
-       WHEN b.resultado = 'fraude_confirmada' THEN 1 ELSE 0 END         AS rotulo_fraude
+  d.decisao_analista,
+  CASE WHEN b.resultado IS NOT NULL THEN 'investigacao'
+       WHEN d.decisao_analista IN ('fraude_confirmada', 'procedente', 'improcedente') THEN 'analista'
+  END                                                                   AS origem_rotulo,
+  CASE WHEN b.resultado IS NOT NULL THEN IF(b.resultado = 'fraude_confirmada', 1, 0)
+       WHEN d.decisao_analista = 'fraude_confirmada' THEN 1
+       WHEN d.decisao_analista IN ('procedente', 'improcedente') THEN 0
+  END                                                                   AS rotulo_fraude
 FROM base b
 JOIN chamados_anteriores ca USING (chamado_id)
 JOIN fraudes_anteriores  fa USING (chamado_id)
 JOIN pedidos_anteriores  pa USING (chamado_id)
 JOIN rota                r  USING (chamado_id)
-LEFT JOIN ligacao        l  USING (chamado_id);
+LEFT JOIN ligacao        l  USING (chamado_id)
+LEFT JOIN decisao        d  USING (chamado_id);
 
 CREATE OR REFRESH MATERIALIZED VIEW gold_fila_investigacao
 COMMENT 'Chamados abertos com a evidência da ligação — a fila que o analista trabalha.'
@@ -168,7 +179,8 @@ SELECT
   g.fraude_indicadores AS indicadores_ligacao,
   g.produtos_faltantes AS produtos_citados,
   g.sinais_relato,
-  f.llm_suspeita_fraude, f.llm_fraude_confianca, f.llm_relato_consistente
+  f.llm_suspeita_fraude, f.llm_fraude_confianca, f.llm_relato_consistente,
+  f.decisao_analista
 FROM gold_features_chamado f
 LEFT JOIN gold_call_insights g USING (call_id)
 WHERE f.status = 'aberto';
