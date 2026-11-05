@@ -105,7 +105,8 @@ rota AS (
 ligacao AS (
   SELECT
     l.chamado_id, l.call_id, l.origem AS origem_ligacao,
-    g.suspeita_fraude, g.fraude_confianca, g.tipo_problema, g.sentiment
+    g.suspeita_fraude, g.fraude_confianca, g.tipo_problema, g.sentiment,
+    size(g.sinais_relato) AS n_sinais_relato, g.relato_consistente
   FROM silver_ligacoes l
   JOIN gold_call_insights g USING (call_id)
   QUALIFY row_number() OVER (PARTITION BY l.chamado_id ORDER BY l.data_hora DESC) = 1
@@ -139,6 +140,8 @@ SELECT
   l.fraude_confianca                                                    AS llm_fraude_confianca,
   l.tipo_problema                                                       AS llm_tipo_problema,
   l.sentiment                                                           AS llm_sentiment,
+  l.n_sinais_relato                                                     AS llm_n_sinais_relato,
+  l.relato_consistente                                                  AS llm_relato_consistente,
 
   -- O rótulo: só existe onde houve investigação
   b.resultado,
@@ -164,7 +167,8 @@ SELECT
   g.summary            AS resumo_ligacao,
   g.fraude_indicadores AS indicadores_ligacao,
   g.produtos_faltantes AS produtos_citados,
-  f.llm_suspeita_fraude, f.llm_fraude_confianca
+  g.sinais_relato,
+  f.llm_suspeita_fraude, f.llm_fraude_confianca, f.llm_relato_consistente
 FROM gold_features_chamado f
 LEFT JOIN gold_call_insights g USING (call_id)
 WHERE f.status = 'aberto';

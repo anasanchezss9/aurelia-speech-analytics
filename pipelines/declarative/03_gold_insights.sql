@@ -52,6 +52,14 @@ WITH analise AS (
         'linha. Use esta lista de linhas da Aurélia apenas para corrigir a grafia ',
         'quando a transcrição errar: Âmbar, Maré, Lua, Memória, Riso, Raízes, ',
         'Diário, Aura (inclui Aura Artisan), Tempo, Brilho, Colo, Tez.\n\n',
+        'Em sinais_relato, marque só o que foi dito sobre o RELATO da consultora, ',
+        'independente de quem possa ter desviado: detalhes_vagos_ou_contraditorios ',
+        '(não sabe dizer o que faltou, muda a versão), pressa_pelo_ressarcimento, ',
+        'resiste_a_enviar_evidencia (evita foto, nota ou vídeo), ',
+        'alega_nao_ter_conferido_na_entrega, historico_de_azar_recorrente (diz que ',
+        'sempre acontece com ela), acusa_terceiros_sem_evidencia. Lista vazia quando ',
+        'o relato é objetivo. Em relato_consistente, true quando a consultora sabe o ',
+        'que aconteceu, mantém a mesma versão e oferece evidência.\n\n',
         'TRANSCRIÇÃO:\n"""\n', full_text, '\n"""'
       ),
       responseFormat => '{
@@ -77,9 +85,11 @@ WITH analise AS (
               "produtos_faltantes": {"type": "array", "items": {"type": "string"}},
               "reincidencia":       {"type": "boolean"},
               "consultora_codigo":  {"type": "string"},
-              "pedido_numero":      {"type": "string"}
+              "pedido_numero":      {"type": "string"},
+              "sinais_relato":      {"type": "array", "items": {"type": "string", "enum": ["detalhes_vagos_ou_contraditorios","pressa_pelo_ressarcimento","resiste_a_enviar_evidencia","alega_nao_ter_conferido_na_entrega","historico_de_azar_recorrente","acusa_terceiros_sem_evidencia"]}},
+              "relato_consistente": {"type": "boolean"}
             },
-            "required": ["sentiment","intent","tipo_problema","suspeita_fraude","fraude_confianca","summary","next_action"]
+            "required": ["sentiment","intent","tipo_problema","suspeita_fraude","fraude_confianca","summary","next_action","sinais_relato","relato_consistente"]
           },
           "strict": true
         }
@@ -113,6 +123,8 @@ SELECT
   j:reincidencia::BOOLEAN                                   AS reincidencia,
   j:consultora_codigo::STRING                               AS consultora_codigo,
   j:pedido_numero::STRING                                   AS pedido_numero,
+  from_json(j:sinais_relato::STRING, 'ARRAY<STRING>')       AS sinais_relato,
+  j:relato_consistente::BOOLEAN                             AS relato_consistente,
 
   CAST(j AS STRING)                                         AS raw_response
 FROM analise;
