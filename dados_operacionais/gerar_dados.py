@@ -346,7 +346,11 @@ def gerar_entregas(rng, pedidos: pd.DataFrame, itens: pd.DataFrame):
         "peso_hub_kg": np.round(peso_hub, 3),
         "comprovante_assinado": assinado,
     })
-    entregas = entregas[pd.to_datetime(entregas["data_envio"]) < pd.Timestamp(DATA_CORTE)]
+    entregas = entregas[pd.to_datetime(entregas["data_envio"]) < pd.Timestamp(DATA_CORTE)].copy()
+    em_transito = pd.to_datetime(entregas["data_entrega"]) >= pd.Timestamp(DATA_CORTE)
+    entregas.loc[em_transito, "data_entrega"] = pd.NaT
+    entregas.loc[em_transito, "status_entrega"] = "em_transito"
+    entregas.loc[em_transito, "comprovante_assinado"] = False
     estado = pd.DataFrame({"pedido_numero": pedidos["pedido_numero"], "extraviado": extraviado,
                            "dias_atraso": dias_atraso})
     return entregas, faltas, estado

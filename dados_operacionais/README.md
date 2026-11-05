@@ -24,7 +24,7 @@ pipeline.
 | `produtos` | 45 | catálogo fictício (Âmbar, Maré, Raízes, Diário, Aura, Tempo…), preço e peso |
 | `pedidos` | ~211 mil | 24 ciclos de 21 dias, com CD e transportadora |
 | `pedido_itens` | ~1,4 mi | itens e preço unitário |
-| `entregas` | ~211 mil | datas, status, peso teórico, peso na expedição e no hub, comprovante |
+| `entregas` | ~211 mil | datas, status (inclui `em_transito` para o que não chegou até o corte), peso teórico, peso na expedição e no hub, comprovante |
 | `chamados` | ~9,9 mil | motivo declarado, canal, valor reclamado, status, valor ressarcido |
 | `chamado_itens` | ~7,3 mil | o que a consultora diz que faltou |
 | `investigacoes` | ~2 mil | resultado da investigação — o único rótulo que existe |
@@ -61,7 +61,7 @@ ficar abaixo do valor que dispara investigação.
 
 Só ~20% dos chamados fechados são investigados, e não ao acaso: a política
 investiga mais chamado acima de R$ 200, consultora com dois ou mais chamados em 180
-dias e caixa violada. Por isso a fraude confirmada é 13,5% dos investigados e 10%
+dias e caixa violada. Por isso a fraude confirmada é 14,4% dos investigados e 10%
 de todos os chamados. Um modelo treinado nesse rótulo aprende a fraude que a
 investigação costuma encontrar; a que escapa da política fica sub-representada.
 Os chamados das últimas três semanas estão abertos e sem rótulo — são a fila que
@@ -71,11 +71,9 @@ o modelo ordena.
 
 | Medida | Valor |
 |---|---|
-| Teste temporal (25% mais recentes dos investigados) | PR-AUC 0,76 · ROC-AUC 0,95 · prevalência 13,8% |
-| Fila aberta, 50 primeiros pelo score | 92% de fraude real, contra 10% na fila inteira |
-| Chamados das 5 ligações de fraude | scores 0,80 · 0,89 · 0,72 · 0,90 e **0,06** |
+| Teste temporal (25% mais recentes dos investigados) | PR-AUC 0,83 · ROC-AUC 0,96 · prevalência 14,2% |
+| Fila aberta, 50 primeiros pelo score | 88% de fraude real, contra 10% na fila inteira |
+| Chamados das 5 ligações de fraude | scores de 0,56 a 0,97; os outros 25 abaixo de 0,05 |
 
 O modelo de referência do script é só uma checagem de que o padrão existe; o
-modelo do build é treinado e servido no Databricks. O chamado de fraude com 0,06
-é o caso que a análise da ligação precisa pegar: no dado operacional ele parece
-legítimo.
+modelo do build é treinado e servido no Databricks.
