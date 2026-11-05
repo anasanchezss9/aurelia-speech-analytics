@@ -5,9 +5,9 @@
 -- responseFormat JSON Schema, recebendo um payload estruturado pronto
 -- para análise de negócio.
 --
--- A STREAMING TABLE com FROM STREAM silver_transcripts_clean garante
--- que cada call_id é analisado uma única vez. Dashboards e alertas
--- podem ler direto desta tabela.
+-- A STREAMING TABLE com FROM STREAM silver_transcricoes garante que cada
+-- call_id é analisado uma única vez, venha do áudio ou do texto.
+-- Dashboards e alertas podem ler direto desta tabela.
 -- ===================================================================
 
 CREATE OR REFRESH STREAMING TABLE gold_call_insights
@@ -86,10 +86,7 @@ WITH analise AS (
       }',
       modelParameters => named_struct('temperature', 0.1, 'max_tokens', 2000)
     ) AS j
-  FROM STREAM silver_transcripts_clean
-  WHERE full_text IS NOT NULL
-    AND length(full_text) > 20
-    AND transcription_error IS NULL
+  FROM STREAM silver_transcricoes
 )
 SELECT
   call_id,

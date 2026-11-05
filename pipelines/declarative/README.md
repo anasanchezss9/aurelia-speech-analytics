@@ -1,139 +1,101 @@
-# Pipeline declarativo (Spark Declarative Pipelines / Lakeflow) — 100% SQL
+# Pipeline declarativo (Lakeflow) — 100% SQL
 
-Mesmo pipeline da pasta `imperative/`, mas escrito **só em SQL**, com
-SDP cuidando de toda a parte mecânica.
+Uma jornada só, do arquivo à feature do modelo. A ligação vira transcrição, a
+transcrição vira análise estruturada, e a análise se junta ao operacional —
+pedido, entrega, consultora, investigação — nas tabelas gold que o modelo de
+fraude, a fila do analista e o Genie leem.
 
 ```
 declarative/
-├── pipeline.yml              ← config do pipeline serverless
-├── 01_bronze.sql             ← STREAMING TABLE com STREAM read_files
-├── 02_silver_transcript.sql  ← STREAMING TABLE chama Whisper via ai_query
-├── 03_gold_insights.sql      ← STREAMING TABLE chama Claude via ai_query
-└── README.md                 ← este arquivo
+├── pipeline.yml                            config do pipeline (snippet de bundle)
+├── 01_bronze.sql                           áudios, 10 tabelas operacionais e transcrições em texto
+├── 02_silver_transcript_ai_transcribe.sql  áudio → texto com ai_transcribe (padrão)
+├── 02_silver_transcript.sql                áudio → texto com Whisper em Model Serving (alternativa)
+├── 02c_silver_transcricoes.sql             as duas origens de transcrição numa tabela, por dois flows
+├── 03_gold_insights.sql                    ai_query com JSON Schema → campos de negócio por ligação
+├── 04_silver_operacional.sql               operacional tipado, com expectativas de qualidade
+└── 05_gold_operacional.sql                 features por chamado, fila, validação, agregados por ciclo
 ```
 
-## Sim, dá pra fazer 100% em SQL
-
-E é o ponto que mais impressiona: **transcrição com Whisper é uma
-chamada `ai_query` em SQL**. Como o endpoint do Whisper é um modelo
-pyfunc registrado no Unity Catalog, o `ai_query` aceita um `STRUCT` no
-parâmetro `request`, mapeando direto para o `dataframe_records` que o
-pyfunc espera (`audio_b64` + `language`).
-
-```sql
-ai_query(
-  'aurelia-whisper-turbo',
-  named_struct('audio_b64', audio_b64, 'language', 'pt'),
-  returnType => 'STRUCT<text: STRING, language: STRING, duration: DOUBLE>',
-  failOnError => false
-)
+```
+Volume audio_landing ──► bronze_audio_files ──► silver_transcripts (ai_transcribe) ─┐
+Volume operacional/transcricoes_texto ──► bronze_transcricoes_texto ───────────────┴► silver_transcricoes
+                                                                                         │
+                                                                                         ▼
+                                                                                gold_call_insights (ai_query)
+Volume operacional/* ──► bronze_* ──► silver_pedidos, silver_entregas,                   │
+                                      silver_chamados, silver_consultoras ───────────────┤
+                                                                                         ▼
+                                       gold_features_chamado · gold_fila_investigacao · gold_ligacoes_validadas
+                                       gold_chamados_ciclo · gold_pedidos_ciclo
 ```
 
-Ou seja, o time de SQL do PIM da Aurélia **não precisa escrever uma
-linha de Python** para rodar este pipeline ponta-a-ponta.
+## As decisões que valem explicar
 
----
+**Duas origens de transcrição, um gold.** Parte das ligações chega como áudio e
+precisa ser transcrita; parte a telefonia já exporta em texto. Os dois flows de
+`02c` escrevem na mesma `silver_transcricoes`, e o gold lê só ela. Fonte nova é um
+`CREATE FLOW` a mais, sem mexer no gold.
 
-## Vantagens do SDP fim a fim — comparado ao imperativo
+**Cada ligação passa pelo LLM uma vez.** O gold é `STREAMING TABLE` sobre
+`STREAM silver_transcricoes`: o `ai_query` roda só no que é novo. Reprocessar tudo
+a cada execução multiplicaria o custo de token pelo número de execuções.
 
-### 1. **Menos código, mais semântica**
-- ~120 linhas de SQL contra ~300 de PySpark.
-- O que está escrito **é** o pipeline: ler arquivos → transcrever → analisar.
+**O peso da caixa separa as causas.** `silver_entregas` calcula a divergência de
+peso no CD (expediu mais leve que o teórico → erro de separação) e no hub (pesou
+menos que a expedição → perda no transporte). A ligação diz *que* algo sumiu; o
+peso diz *onde*.
 
-### 2. **Idempotência grátis**
-- `STREAMING TABLE` + `FROM STREAM` garante que cada `call_id` é
-  processado uma única vez. Nada de `MERGE INTO`, `LEFT ANTI JOIN`,
-  nem checkpoints manuais.
+**Feature só com o que se sabia na abertura.** Em `gold_features_chamado`, o
+histórico da consultora conta para trás a partir da data do chamado, e fraude
+anterior só conta se a investigação já tinha concluído. Sem isso o modelo aprende
+com o futuro e a métrica de teste mente.
 
-### 3. **Lineage automática no Unity Catalog**
-- O SDP registra a relação entre `bronze_audio_files` →
-  `silver_transcripts_clean` → `gold_call_insights` automaticamente.
-- Aparece direto no UC e no Catalog Explorer.
+**O número ditado ao telefone é conferido, não confiado.** Dígito repetido some na
+transcrição ("793337" sai "7937"), e prompt nenhum recupera. `gold_ligacoes_validadas`
+confere a consultora e o pedido extraídos contra o cadastro e, quando não batem,
+escolhe o pedido da consultora com até 2 dígitos de diferença.
 
-### 4. **Pipeline UI: visual, métricas, expectations**
-- Cada execução tem um painel com:
-  - Mapa do DAG colorido por etapa (sucesso/erro/skipped).
-  - Linhas processadas por etapa em cada run.
-  - `EXPECT` clauses para data quality (ex: rejeitar transcrições com `duration_s = 0`).
-  - Eventos de mudança de schema, falhas, retries.
+## Resultado no fevm-field-toolbox (05/11/2026)
 
-### 5. **Modo triggered = batch puro**
-- `continuous: false` no `pipeline.yml` faz o SDP rodar como um job
-  batch: lê o que tiver de novo, processa, termina. Custo só durante
-  a execução. Combina com o que a Aurélia quer (batch).
+1.229 ligações (30 em áudio, 1.199 em texto), 9.884 chamados, 210.909 pedidos.
+Execução completa em ~10 min, serverless.
 
-### 6. **Schedule, retry e alertas no próprio pipeline**
-- Não precisa de Job multi-task encadeado. O pipeline tem schedule
-  próprio, retries built-in, e alertas via webhook.
+| Medida | Resultado |
+|---|---|
+| Gabarito das 30 ligações em áudio | erro de palavras 5,2%; `tipo_problema`, `suspeita_fraude` e produtos 100% |
+| Pedido certo, só com o que o LLM extraiu | 80% no áudio · 86,6% no texto |
+| Pedido certo, depois da validação contra o cadastro | **100%** no áudio · **97,7%** no texto |
+| Expectativas de qualidade | 8, nenhuma linha derrubada (dado sintético limpo) |
 
-### 7. **Multi-ambiente nativo via Asset Bundles**
-- Mesmo arquivo, parâmetros diferentes para `dev`, `staging`, `prod`.
-- O `pipeline.yml` só muda 5 valores em `configuration`.
+O que o LLM vê na ligação, pela causa real do chamado (1.199 ligações em texto):
 
-### 8. **Quality, Quarantine e CDC prontos**
-- Adicionar `EXPECT (length(full_text) > 50) ON VIOLATION DROP ROW`
-  vira 1 linha SQL.
-- `AUTO CDC` permite slowly-changing dimensions sem código extra
-  (útil quando a Aurélia quiser dimensão de Consultora histórica).
+| Causa real | `suspeita_fraude` marcada |
+|---|---|
+| Furto em trânsito | 100% |
+| Fraude da consultora | 23% |
+| Fraude oportunista | 18% |
+| Erro de separação, atraso, extravio, outro | 0% |
 
-### 9. **Mesmo otimizador, sem tunar manualmente**
-- `pipelines.autoOptimize.managed = true` (default) cuida de Z-Order,
-  Auto Compaction, vacuum.
-- Photon ativado por padrão em serverless.
-
-### 10. **Custo previsível**
-- Serverless cobra por unidade de cluster ativo. Em modo triggered,
-  só paga durante a execução. Os áudios e o LLM cobram à parte (Whisper
-  por GPU enquanto o endpoint estiver up; Claude por token).
-
----
-
-## Quando o imperativo ainda faz sentido?
-
-- Quando a lógica precisa de bibliotecas Python que SQL não tem
-  (ex: pré-processamento de áudio com `pydub`, OCR com `pytesseract`,
-  modelos local sem endpoint).
-- Quando há lógica condicional pesada que ficaria ilegível em SQL.
-- Quando você precisa controlar fino o paralelismo (ex: GPU pinning,
-  batch size custom para um modelo).
-
-Para o caso PPM Falta da Aurélia, **nenhum desses se aplica**: o
-pipeline é ELT padrão (extract bytes → transform via modelos → load
-em tabelas). SDP em SQL é a recomendação.
-
----
+É a razão de existir o modelo: pela ligação, "caixa aberta e o perfume sumiu" é
+igual quando quem levou foi o transportador e quando foi a consultora. O LLM acerta
+que houve desvio e não tem como saber quem desviou. O sinal da ligação entra como
+feature, ao lado do peso, do histórico e da rota.
 
 ## Como deployar
 
-### Via Asset Bundles (recomendado)
+O `pipeline.yml` é um snippet de bundle (`include: pipelines/declarative/pipeline.yml`
+no `databricks.yml`). Os parâmetros em `configuration` viram `${var}` nos SQLs:
+`catalog`, `schema`, `volume_landing`, `volume_operacional`, `whisper_endpoint`,
+`llm_endpoint`.
 
-O `pipeline.yml` desta pasta é um snippet do bundle. Adicione ao
-`databricks.yml` do projeto:
+Requer o preview **AI Transcribe** ligado no workspace. Arquivo sobrescrito com o
+mesmo nome não é relido pelo `read_files`: ao regerar o dado sintético, rode com
+**full refresh**.
 
-```yaml
-include:
-  - pipelines/declarative/pipeline.yml
-```
+## Quando o imperativo (`../imperative/`) ainda faz sentido
 
-Depois:
-
-```bash
-databricks bundle deploy --target dev
-databricks bundle run aurelia_speech_sdp --target dev
-```
-
-### Via UI (rápido para prototipar)
-
-1. Crie um pipeline novo: **Workflows > Pipelines > Create pipeline**
-2. Escolha **Serverless**, **Triggered**.
-3. Em **Notebook libraries**, adicione os 3 arquivos SQL desta pasta.
-4. Em **Configuration**, adicione os 5 parâmetros do `pipeline.yml`:
-   - `catalog`, `schema`, `volume_landing`, `whisper_endpoint`, `llm_endpoint`.
-5. Salve e clique em **Start**.
-
-### Adicionando novos áudios
-
-Faça `cp` para `/Volumes/{catalog}/{schema}/audio_landing/` e dispare
-o pipeline. Ele detecta automaticamente os novos arquivos e processa
-**só eles** (Whisper só roda nos novos, ai_query do Claude também só
-roda nos novos).
+Quando a lógica precisa de biblioteca Python que SQL não tem (pré-processamento de
+áudio, OCR, modelo local), ou de controle fino de paralelismo. Ele grava em
+tabelas próprias (`bronze_audio_files_imperativo`, `*_ait`), porque uma tabela de
+pipeline declarativo não aceita escrita de fora dele.

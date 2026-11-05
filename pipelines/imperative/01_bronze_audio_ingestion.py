@@ -37,7 +37,7 @@ for candidate in [
 CATALOG = os.getenv("CATALOG", "field_toolbox_catalog")
 SCHEMA = os.getenv("SCHEMA", "aurelia_speech")
 VOLUME = os.getenv("VOLUME_LANDING", "audio_landing")
-TABLE_BRONZE = os.getenv("TABLE_BRONZE", "bronze_audio_files")
+TABLE_BRONZE = os.getenv("TABLE_BRONZE", "bronze_audio_files_imperativo")
 
 VOLUME_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}"
 CHECKPOINT = f"{VOLUME_PATH}/_checkpoints/bronze"

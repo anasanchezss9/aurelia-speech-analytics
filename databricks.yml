@@ -1,6 +1,9 @@
 bundle:
   name: aurelia-speech-analytics
 
+include:
+  - pipelines/declarative/pipeline.yml
+
 variables:
   app_name:
     description: Nome do Databricks App

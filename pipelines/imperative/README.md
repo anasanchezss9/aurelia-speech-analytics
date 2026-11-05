@@ -5,7 +5,7 @@ Job multi-task.
 
 | Etapa | Notebook | Tabela de saída | Custo dominante |
 |---|---|---|---|
-| Bronze | `01_bronze_audio_ingestion.py` | `bronze_audio_files` | I/O do volume |
+| Bronze | `01_bronze_audio_ingestion.py` | `bronze_audio_files_imperativo` | I/O do volume |
 | Silver | `02_silver_transcription.py` | `silver_transcripts` | GPU do endpoint Whisper |
 | Gold | `03_gold_ai_query_analysis.py` | `gold_call_insights` | Tokens do Claude |
 

@@ -47,7 +47,7 @@ VOLUME = os.getenv("VOLUME_LANDING", "audio_landing")
 WHISPER_ENDPOINT = os.getenv("WHISPER_ENDPOINT", "aurelia-whisper-turbo")
 
 FQ = f"{CATALOG}.{SCHEMA}"
-BRONZE = f"{FQ}.{os.getenv('TABLE_BRONZE', 'bronze_audio_files')}"
+BRONZE = f"{FQ}.{os.getenv('TABLE_BRONZE', 'bronze_audio_files_imperativo')}"
 SILVER_W = f"{FQ}.{os.getenv('TABLE_SILVER', 'silver_transcripts')}"
 SILVER_A = f"{FQ}.{os.getenv('TABLE_SILVER_AIT', 'silver_transcripts_ait')}"
 GOLD_W = f"{FQ}.{os.getenv('TABLE_GOLD', 'gold_call_insights')}"

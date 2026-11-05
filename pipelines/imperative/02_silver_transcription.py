@@ -32,7 +32,7 @@ for candidate in [
 
 CATALOG = os.getenv("CATALOG", "field_toolbox_catalog")
 SCHEMA = os.getenv("SCHEMA", "aurelia_speech")
-TABLE_BRONZE = os.getenv("TABLE_BRONZE", "bronze_audio_files")
+TABLE_BRONZE = os.getenv("TABLE_BRONZE", "bronze_audio_files_imperativo")
 TABLE_SILVER = os.getenv("TABLE_SILVER", "silver_transcripts")
 WHISPER_ENDPOINT = os.getenv("WHISPER_ENDPOINT", "aurelia-whisper-turbo")
 

@@ -46,7 +46,7 @@ for candidate in [
 CATALOG = os.getenv("CATALOG", "field_toolbox_catalog")
 SCHEMA = os.getenv("SCHEMA", "aurelia_speech")
 VOLUME = os.getenv("VOLUME_LANDING", "audio_landing")
-TABLE_BRONZE = os.getenv("TABLE_BRONZE", "bronze_audio_files")
+TABLE_BRONZE = os.getenv("TABLE_BRONZE", "bronze_audio_files_imperativo")
 TABLE_SILVER_AIT = os.getenv("TABLE_SILVER_AIT", "silver_transcripts_ait")
 
 BRONZE = f"{CATALOG}.{SCHEMA}.{TABLE_BRONZE}"
