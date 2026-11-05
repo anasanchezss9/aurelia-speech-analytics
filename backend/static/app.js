@@ -25,6 +25,7 @@
   const pageConfig = $("page-config");
   const pageRecord = $("page-record");
   const pageArchitecture = $("page-architecture");
+  const pageFila = $("page-fila");
   const navTabs = document.querySelectorAll(".nav-tab");
   const presetsGrid = $("presets-grid");
   const questionsList = $("questions-list");
@@ -60,12 +61,14 @@
     if (pageConfig)       pageConfig.style.display       = page === "config"       ? "" : "none";
     if (pageRecord)       pageRecord.style.display       = page === "record"       ? "" : "none";
     if (pageArchitecture) pageArchitecture.style.display = page === "architecture" ? "" : "none";
+    if (pageFila)         pageFila.style.display         = page === "fila"         ? "" : "none";
     navTabs.forEach((t) => {
       t.classList.toggle("active", t.dataset.page === page);
     });
     // Hooks por página
     if (page === "dashboard") loadDashboard();
     if (page === "upload")    refreshProcessingStatus();
+    if (page === "fila")      loadFila();
     // Volta para o topo ao trocar de página
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -996,6 +999,206 @@
       }
     });
   }
+
+  // ---------- Fila de investigação (Lakebase) ----------
+  const DECISOES = {
+    fraude_confirmada: "Fraude confirmada",
+    procedente: "Procedente",
+    improcedente: "Improcedente",
+    pedir_evidencia: "Pedir evidência",
+  };
+  const SINAIS = {
+    detalhes_vagos_ou_contraditorios: "relato vago ou contraditório",
+    pressa_pelo_ressarcimento: "pressa pelo ressarcimento",
+    resiste_a_enviar_evidencia: "resiste a enviar evidência",
+    alega_nao_ter_conferido_na_entrega: "não conferiu na entrega",
+    historico_de_azar_recorrente: "azar recorrente",
+    acusa_terceiros_sem_evidencia: "acusa terceiros sem evidência",
+  };
+  let filaSelecionado = null;
+
+  function el(tag, cls, texto) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (texto !== undefined && texto !== null) e.textContent = texto;
+    return e;
+  }
+  const brl = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const corScore = (s) => (s >= 0.5 ? "var(--db-red)" : s >= 0.2 ? "var(--db-orange)" : "var(--db-green)");
+
+  async function loadFila() {
+    try {
+      const [rRes, rLista] = await Promise.all([
+        fetch("/api/fila/resumo"),
+        fetch("/api/fila?" + new URLSearchParams({
+          ...($("fila-faixa").value ? { faixa: $("fila-faixa").value } : {}),
+          pendentes: $("fila-pendentes").checked,
+          limite: 200,
+        })),
+      ]);
+      if (!rRes.ok || !rLista.ok) throw new Error("HTTP " + (rRes.ok ? rLista.status : rRes.status));
+      const resumo = await rRes.json();
+      $("fk-abertos").textContent = resumo.abertos;
+      $("fk-alto").textContent = resumo.alto_risco;
+      $("fk-alto-sub").textContent = brl(resumo.valor_alto_risco) + " reclamados";
+      $("fk-decididos").textContent = resumo.decididos;
+      $("fk-fraudes").textContent = resumo.fraudes_confirmadas;
+      $("fila-modelo").textContent = "modelo v" + resumo.modelo_versao;
+      renderFila(await rLista.json());
+    } catch (e) {
+      $("fila-lista").innerHTML = "";
+      $("fila-lista").appendChild(el("p", "muted", "Não foi possível ler a fila: " + e.message));
+    }
+  }
+
+  function renderFila(linhas) {
+    const box = $("fila-lista");
+    box.innerHTML = "";
+    if (!linhas.length) { box.appendChild(el("p", "muted", "Nada na fila com esse filtro.")); return; }
+    const t = el("table", "data-table");
+    const h = el("tr");
+    ["#", "Score", "Chamado", "Motivo", "Valor", "Rota", "Ligação"].forEach((x) => h.appendChild(el("th", null, x)));
+    t.appendChild(el("thead")).appendChild(h);
+    const tb = el("tbody");
+    linhas.forEach((l) => {
+      const tr = el("tr", "fila-row" + (l.chamado_id === filaSelecionado ? " selecionada" : ""));
+      tr.appendChild(el("td", "num", l.posicao));
+      const tdScore = el("td");
+      const sc = el("div", "score-cell");
+      const bar = el("div", "score-bar");
+      const fill = el("span");
+      fill.style.width = Math.round(l.score_fraude * 100) + "%";
+      fill.style.background = corScore(l.score_fraude);
+      bar.appendChild(fill);
+      sc.appendChild(bar);
+      sc.appendChild(el("span", null, Number(l.score_fraude).toFixed(2)));
+      tdScore.appendChild(sc);
+      tr.appendChild(tdScore);
+      const tdCh = el("td", null, l.chamado_id);
+      if (l.decisao) tdCh.appendChild(el("span", "pill " + (l.decisao === "fraude_confirmada" ? "red" : "green"), " " + DECISOES[l.decisao]));
+      tr.appendChild(tdCh);
+      tr.appendChild(el("td", null, l.motivo_declarado));
+      tr.appendChild(el("td", "num", brl(l.valor_reclamado)));
+      tr.appendChild(el("td", null, l.transportadora + " · " + l.uf));
+      tr.appendChild(el("td", null, l.call_id ? (l.sinais_relato.length ? "⚠ " + l.sinais_relato.length + " sinal(is)" : "sem sinais") : "—"));
+      tr.addEventListener("click", () => abrirChamado(l.chamado_id));
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    box.appendChild(t);
+  }
+
+  async function abrirChamado(id) {
+    filaSelecionado = id;
+    document.querySelectorAll(".fila-row").forEach((r) => r.classList.toggle("selecionada", r.firstChild && r.children[2].firstChild.textContent === id));
+    const box = $("fila-detalhe");
+    box.innerHTML = "";
+    box.appendChild(el("p", "muted", "Carregando " + id + "…"));
+    let c;
+    try {
+      const r = await fetch("/api/fila/" + encodeURIComponent(id));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      c = await r.json();
+    } catch (e) {
+      box.innerHTML = "";
+      box.appendChild(el("p", "muted", "Falha ao abrir: " + e.message));
+      return;
+    }
+    box.innerHTML = "";
+    const topo = el("div", "score-cell");
+    topo.appendChild(el("h3", null, c.chamado_id));
+    const pill = el("span", "pill " + (c.faixa_risco === "alta" ? "red" : c.faixa_risco === "media" ? "orange" : "green"),
+      "risco " + c.faixa_risco + " · " + Number(c.score_fraude).toFixed(2));
+    topo.appendChild(pill);
+    box.appendChild(topo);
+    box.appendChild(el("span", "muted", "Probabilidade calibrada de fraude, modelo v" + c.modelo_versao + ". Posição " + c.posicao + " na fila."));
+
+    box.appendChild(el("h4", null, "O chamado"));
+    const dl = el("dl", "fila-fatos");
+    const div = (v) => (v === null || v === undefined ? "sem pesagem" : (Number(v) * 100).toFixed(1) + "%");
+    [
+      ["Consultora", c.consultora_codigo + " · " + Number(c.meses_casa).toFixed(0) + " meses de casa"],
+      ["Pedido", c.pedido_numero],
+      ["Motivo", c.motivo_declarado + " · " + brl(c.valor_reclamado)],
+      ["Entrega", c.transportadora + " · " + c.uf + " · CD " + c.cd + (c.comprovante_assinado ? " · comprovante assinado" : "")],
+      ["Peso no CD", div(c.div_peso_cd) + " abaixo do teórico"],
+      ["Peso no hub", div(c.div_peso_hub) + " abaixo da expedição"],
+      ["Histórico", c.chamados_180d + " chamado(s) em 180 dias · " + c.fraudes_confirmadas_antes + " fraude(s) confirmada(s) antes"],
+    ].forEach(([k, v]) => { dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", null, v)); });
+    box.appendChild(dl);
+
+    if (c.call_id) {
+      box.appendChild(el("h4", null, "A ligação"));
+      if (c.sinais_relato.length) {
+        const s = el("div", "fila-sinais");
+        c.sinais_relato.forEach((x) => s.appendChild(el("span", "pill orange", SINAIS[x] || x)));
+        box.appendChild(s);
+      } else {
+        box.appendChild(el("span", "muted", "Nenhum sinal no relato da consultora."));
+      }
+      if (c.resumo_ligacao) box.appendChild(el("p", null, c.resumo_ligacao));
+      if (c.tem_audio) {
+        const a = el("audio");
+        a.controls = true;
+        a.preload = "none";
+        a.src = "/api/portal/audio/" + encodeURIComponent(c.call_id);
+        a.style.width = "100%";
+        box.appendChild(a);
+      }
+      if (c.transcricao) {
+        const det = el("details");
+        det.appendChild(el("summary", "muted", "Transcrição completa"));
+        det.appendChild(el("div", "fila-transcricao", c.transcricao));
+        box.appendChild(det);
+      }
+    }
+
+    box.appendChild(el("h4", null, "Sua decisão"));
+    const coment = el("textarea");
+    coment.placeholder = "Comentário (opcional): o que você conferiu, o que falta";
+    const btns = el("div", "decisao-btns");
+    [["fraude_confirmada", "fraude"], ["procedente", "procedente"], ["improcedente", "ghost"], ["pedir_evidencia", "ghost"]].forEach(([k, cls]) => {
+      const b = el("button", cls, DECISOES[k]);
+      b.addEventListener("click", () => decidir(c.chamado_id, k, coment.value, btns));
+      btns.appendChild(b);
+    });
+    box.appendChild(btns);
+    box.appendChild(coment);
+    if (c.historico && c.historico.length) {
+      const hist = el("div", "fila-historico");
+      c.historico.forEach((d) => hist.appendChild(el("div", null,
+        new Date(d.decidido_em).toLocaleString("pt-BR") + " · " + DECISOES[d.decisao] + " · " + d.analista + (d.comentario ? " — " + d.comentario : ""))));
+      box.appendChild(hist);
+    }
+  }
+
+  async function decidir(id, decisao, comentario, btns) {
+    btns.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    try {
+      const r = await fetch("/api/fila/" + encodeURIComponent(id) + "/decisao", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decisao, comentario: comentario || null }),
+      });
+      if (!r.ok) throw new Error((await r.json()).detail || "HTTP " + r.status);
+      await loadFila();
+      await abrirChamado(id);
+    } catch (e) {
+      alert("Não foi possível gravar a decisão: " + e.message);
+      btns.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    }
+  }
+
+  $("fila-refresh").addEventListener("click", loadFila);
+  $("fila-faixa").addEventListener("change", loadFila);
+  $("fila-pendentes").addEventListener("change", loadFila);
+
+  // Sem endpoint Whisper, a gravação ao vivo não funciona: some com as abas dela.
+  fetch("/api/recursos").then((r) => r.json()).then((rec) => {
+    if (!rec.gravacao_ao_vivo) {
+      document.querySelectorAll('.nav-tab[data-page="config"], .nav-tab[data-page="record"]').forEach((b) => (b.style.display = "none"));
+    }
+  }).catch(() => {});
 
   // ---------- Init ----------
   renderQuestions();

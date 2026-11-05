@@ -995,3 +995,26 @@ button.ghost:hover:not(:disabled) {
 .proc-log .ok    { color: var(--db-green); }
 .proc-log .err   { color: var(--db-red); }
 .proc-log .info  { color: var(--db-blue); }
+
+/* ---------- Fila de investigação ---------- */
+.fila-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .fila-grid { grid-template-columns: 1fr; } }
+.fila-check { color: var(--db-muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.fila-row { cursor: pointer; }
+.fila-row:hover td { background: rgba(255, 255, 255, 0.04); }
+.fila-row.selecionada td { background: rgba(34, 114, 180, 0.18); }
+.score-cell { display: flex; align-items: center; gap: 8px; min-width: 110px; }
+.score-bar { height: 6px; border-radius: 3px; background: var(--db-border); flex: 1; overflow: hidden; }
+.score-bar > span { display: block; height: 100%; }
+.fila-detalhe { background: var(--db-darker); border: 1px solid var(--db-border); border-radius: 10px; padding: 16px; position: sticky; top: 16px; }
+.fila-detalhe h4 { margin: 14px 0 6px; font-size: 13px; color: var(--db-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.fila-fatos { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+.fila-fatos dt { color: var(--db-muted); }
+.fila-sinais { display: flex; flex-wrap: wrap; gap: 6px; }
+.fila-transcricao { max-height: 220px; overflow-y: auto; font-size: 13px; line-height: 1.5; color: var(--db-text); white-space: pre-wrap; }
+.decisao-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.decisao-btns button { font-size: 13px; padding: 8px; }
+.decisao-btns .fraude { background: var(--db-red); }
+.decisao-btns .procedente { background: var(--db-green); }
+.fila-detalhe textarea { width: 100%; min-height: 56px; margin-top: 8px; background: var(--db-card); color: var(--db-text); border: 1px solid var(--db-border); border-radius: 6px; padding: 8px; font: inherit; font-size: 13px; }
+.fila-historico { font-size: 12px; color: var(--db-muted); margin-top: 6px; }

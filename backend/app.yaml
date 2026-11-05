@@ -9,21 +9,23 @@ command:
   - "--port"
   - "8000"
 
-# Para levar o app a outro workspace, os campos a trocar são WHISPER_ENDPOINT,
-# PORTAL_CATALOG, PORTAL_SCHEMA e PORTAL_NOTEBOOK_PREFIX.
+# Para levar o app a outro workspace, os campos a trocar são PORTAL_CATALOG,
+# PORTAL_SCHEMA, PORTAL_JOB_ID e LAKEBASE_ENDPOINT.
 
 env:
   # ----- Endpoints -----
+  # Vazio desliga a gravação ao vivo (abas Configurar e Gravar). Para ligar, suba
+  # o Whisper com notebooks/01_deploy_whisper_turbo.py e ponha o nome aqui.
   - name: WHISPER_ENDPOINT
-    value: "aurelia-whisper-turbo"
+    value: ""
   - name: WHISPER_SCHEMA
-    value: "simple"  # 'simple' (audio->string) | 'rich' (audio_b64+language->struct)
+    value: "simple"
   - name: LLM_MODEL
     value: "databricks-claude-sonnet-4-6"
   - name: WHISPER_FLUSH_SECONDS
     value: "2.0"
 
-  # ----- Portal: catalog/schema/volume + tabelas -----
+  # ----- Portal: catalog/schema/volume + tabelas do pipeline -----
   - name: PORTAL_CATALOG
     value: "field_toolbox_catalog"
   - name: PORTAL_SCHEMA
@@ -41,6 +43,13 @@ env:
   - name: PORTAL_WAREHOUSE_ID
     valueFrom: "warehouse"
 
-  # ----- Notebooks que o portal dispara via Jobs API -----
-  - name: PORTAL_NOTEBOOK_PREFIX
-    value: "/Workspace/Users/ana.sanchez@databricks.com/aurelia_speech_pipelines/imperative"
+  # ----- Job que o botão Processar dispara (pipeline → pontuação → fila no Lakebase) -----
+  - name: PORTAL_JOB_ID
+    valueFrom: "job_diario"
+
+  # ----- Lakebase: fila priorizada (leitura) e decisões do analista (escrita) -----
+  # Sem PGUSER: o app entra como o próprio service principal (DATABRICKS_CLIENT_ID).
+  - name: LAKEBASE_ENDPOINT
+    value: "projects/aurelia-speech-ops/branches/production/endpoints/primary"
+  - name: PGDATABASE
+    value: "databricks_postgres"

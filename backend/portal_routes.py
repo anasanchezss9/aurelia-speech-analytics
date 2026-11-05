@@ -2,7 +2,7 @@
 
 Endpoints (prefixo /api/portal):
   POST /api/portal/upload         - upload de áudio (.wav/.mp3/.m4a) para o volume
-  POST /api/portal/process        - dispara o pipeline imperativo em background
+  POST /api/portal/process        - dispara o job diário (pipeline, pontuação, fila no Lakebase)
   GET  /api/portal/processing     - status da última execução do pipeline
   GET  /api/portal/calls          - lista chamadas com insights (filtros via query)
   GET  /api/portal/calls/{id}     - detalhe de uma chamada
@@ -12,7 +12,9 @@ Endpoints (prefixo /api/portal):
 Premissas:
 - O app roda como Databricks App, com OAuth automático via WorkspaceClient.
 - Tabelas e volume vivem em ${CATALOG}.${SCHEMA}.* (config via env).
-- O pipeline imperativo é disparado via Jobs API (one-time submit run).
+- O processamento é o job `aurelia-speech-diario` (PORTAL_JOB_ID), disparado pela
+  Jobs API: o pipeline Lakeflow pega os áudios novos do volume, inclusive os do
+  upload, e a fila é pontuada e sincronizada com o Lakebase no mesmo run.
 - O volume é acessado pela Files API, não pelo filesystem: o container do app
   não monta /Volumes, então open()/os.path.exists() ali sempre falham.
 """
@@ -31,7 +33,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service import jobs as jobs_svc
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -49,9 +50,16 @@ TABLE_BRONZE = os.getenv("PORTAL_TABLE_BRONZE", "bronze_audio_files")
 TABLE_SILVER = os.getenv("PORTAL_TABLE_SILVER", "silver_transcripts")
 TABLE_GOLD = os.getenv("PORTAL_TABLE_GOLD", "gold_call_insights")
 WAREHOUSE_ID = os.getenv("PORTAL_WAREHOUSE_ID", "")  # SQL Warehouse pro app ler
-PIPELINE_NOTEBOOK_PREFIX = os.getenv(
-    "PORTAL_NOTEBOOK_PREFIX",
-    "/Workspace/Users/ana.sanchez@databricks.com/aurelia_speech_pipelines/imperative",
+JOB_ID = int(os.getenv("PORTAL_JOB_ID", "0"))
+
+# A bronze do pipeline declarativo guarda só o ponteiro do arquivo. Formato e
+# origem saem do caminho: o upload grava em /uploads, a gravação em /recordings.
+BRONZE = (
+    "(SELECT call_id, audio_path, ingested_at, "
+    r"lower(regexp_extract(audio_path, '\.([a-zA-Z0-9]+)$', 1)) AS audio_format, "
+    "CASE WHEN audio_path LIKE '%/uploads/%' THEN 'upload' "
+    "WHEN audio_path LIKE '%/recordings/%' THEN 'recording' ELSE 'landing' END AS source "
+    f"FROM {CATALOG}.{SCHEMA}.{TABLE_BRONZE})"
 )
 
 VOLUME_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}"
@@ -321,54 +329,28 @@ def _count_pending_audios() -> int:
 
 
 def _run_pipeline_async(run_id_holder: dict[str, Any]) -> None:
-    """Roda o pipeline imperativo em background via Jobs API."""
+    """Dispara o job diário e acompanha até terminar, em background."""
     w = workspace()
     try:
-        # Submit one-time run com 3 tasks encadeadas (serverless)
-        run = w.jobs.submit(
-            run_name=f"aurelia_portal_pipeline_{int(time.time())}",
-            tasks=[
-                jobs_svc.SubmitTask(
-                    task_key="bronze",
-                    notebook_task=jobs_svc.NotebookTask(
-                        notebook_path=f"{PIPELINE_NOTEBOOK_PREFIX}/01_bronze_audio_ingestion",
-                        source=jobs_svc.Source.WORKSPACE,
-                    ),
-                ),
-                jobs_svc.SubmitTask(
-                    task_key="silver",
-                    depends_on=[jobs_svc.TaskDependency(task_key="bronze")],
-                    notebook_task=jobs_svc.NotebookTask(
-                        notebook_path=f"{PIPELINE_NOTEBOOK_PREFIX}/02_silver_transcription",
-                        source=jobs_svc.Source.WORKSPACE,
-                    ),
-                ),
-                jobs_svc.SubmitTask(
-                    task_key="gold",
-                    depends_on=[jobs_svc.TaskDependency(task_key="silver")],
-                    notebook_task=jobs_svc.NotebookTask(
-                        notebook_path=f"{PIPELINE_NOTEBOOK_PREFIX}/03_gold_ai_query_analysis",
-                        source=jobs_svc.Source.WORKSPACE,
-                    ),
-                ),
-            ],
-        )
+        if not JOB_ID:
+            raise RuntimeError("PORTAL_JOB_ID não configurado no app.yaml")
+        run = w.jobs.run_now(job_id=JOB_ID)
         run_id_holder["run_id"] = run.run_id
         with _processing_lock:
             _processing_state["run_id"] = run.run_id
+            _processing_state["message"] = "Pipeline, pontuação e fila em andamento…"
 
-        # Aguarda terminar
-        run.result()  # block until terminal state
+        run.result()  # bloqueia até o estado terminal
 
         final = w.jobs.get_run(run.run_id)
         result_state = (final.state.result_state.value if final.state and final.state.result_state else "UNKNOWN")
         with _processing_lock:
             _processing_state["status"] = "success" if result_state == "SUCCESS" else "failed"
             _processing_state["finished_at"] = datetime.utcnow().isoformat()
-            _processing_state["message"] = f"Pipeline {result_state}"
-        logger.info("Pipeline terminou: %s", result_state)
+            _processing_state["message"] = f"Job {result_state}"
+        logger.info("Job terminou: %s", result_state)
     except Exception as e:
-        logger.exception("Falha rodando pipeline")
+        logger.exception("Falha rodando o job")
         with _processing_lock:
             _processing_state["status"] = "failed"
             _processing_state["finished_at"] = datetime.utcnow().isoformat()
@@ -444,7 +426,7 @@ def list_calls(
           g.consultora_codigo,
           g.pedido_numero,
           g.churn_risk
-        FROM {CATALOG}.{SCHEMA}.{TABLE_BRONZE} b
+        FROM {BRONZE} b
         LEFT JOIN {CATALOG}.{SCHEMA}.{TABLE_SILVER} s ON s.call_id = b.call_id
         LEFT JOIN {CATALOG}.{SCHEMA}.{TABLE_GOLD}   g ON g.call_id = b.call_id
         {where_sql}
@@ -496,7 +478,7 @@ def get_call(call_id: str) -> CallDetail:
           to_json(g.topics)             AS topics_json,
           to_json(g.fraude_indicadores) AS fraude_indicadores_json,
           to_json(g.produtos_faltantes) AS produtos_faltantes_json
-        FROM {CATALOG}.{SCHEMA}.{TABLE_BRONZE} b
+        FROM {BRONZE} b
         LEFT JOIN {CATALOG}.{SCHEMA}.{TABLE_SILVER} s ON s.call_id = b.call_id
         LEFT JOIN {CATALOG}.{SCHEMA}.{TABLE_GOLD}   g ON g.call_id = b.call_id
         WHERE b.call_id = '{call_id}'
@@ -549,7 +531,7 @@ def stream_audio(call_id: str, request: Request):
         f"""
         SELECT regexp_replace(audio_path, '^dbfs:', '') AS path,
                audio_format
-        FROM {CATALOG}.{SCHEMA}.{TABLE_BRONZE}
+        FROM {BRONZE} b
         WHERE call_id = '{call_id}'
         LIMIT 1
         """
@@ -729,7 +711,7 @@ def dashboard() -> DashboardOut:
           substr(s.full_text, 1, 200)    AS transcript_preview,
           g.sentiment, g.tipo_problema, g.suspeita_fraude, g.reincidencia,
           g.consultora_codigo, g.pedido_numero, g.churn_risk
-        FROM {CATALOG}.{SCHEMA}.{TABLE_BRONZE} b
+        FROM {BRONZE} b
         LEFT JOIN {CATALOG}.{SCHEMA}.{TABLE_SILVER} s ON s.call_id = b.call_id
         LEFT JOIN {CATALOG}.{SCHEMA}.{TABLE_GOLD}   g ON g.call_id = b.call_id
         ORDER BY COALESCE(g.analyzed_at, b.ingested_at) DESC

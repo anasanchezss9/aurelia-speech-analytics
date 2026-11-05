@@ -13,6 +13,7 @@
         <h1>Aurélia · Speech Analytics</h1>
         <nav class="app-nav">
           <button class="nav-tab active" data-page="dashboard">📊 Dashboard</button>
+          <button class="nav-tab" data-page="fila">🕵️ Fila de investigação</button>
           <button class="nav-tab" data-page="upload">📤 Upload</button>
           <button class="nav-tab" data-page="config">⚙️ Configurar</button>
           <button class="nav-tab" data-page="record">🎙️ Gravar</button>
@@ -216,6 +217,49 @@
           </div>
         </div>
       </div>
+
+      <!-- ============ Fila de investigação (Lakebase) ============ -->
+      <section id="page-fila" style="display: none">
+        <div class="dash-header">
+          <div>
+            <h2 style="margin-bottom: 4px">Fila de investigação</h2>
+            <p class="subtitle" style="margin: 0">
+              Chamados de falta abertos, em ordem de probabilidade de fraude. O score é do modelo;
+              a decisão é sua e volta para o lakehouse como rótulo.
+            </p>
+          </div>
+          <div class="dash-actions">
+            <span id="fila-modelo" class="dash-updated">—</span>
+            <button class="ghost" id="fila-refresh">↻ Atualizar</button>
+          </div>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi-card"><div class="kpi-label">Abertos</div><div class="kpi-value" id="fk-abertos">—</div><div class="kpi-sub">na fila</div></div>
+          <div class="kpi-card alert"><div class="kpi-label">Alto risco</div><div class="kpi-value" id="fk-alto">—</div><div class="kpi-sub" id="fk-alto-sub">score ≥ 0,5</div></div>
+          <div class="kpi-card"><div class="kpi-label">Decididos</div><div class="kpi-value" id="fk-decididos">—</div><div class="kpi-sub">por analistas</div></div>
+          <div class="kpi-card warn"><div class="kpi-label">Fraudes confirmadas</div><div class="kpi-value" id="fk-fraudes">—</div><div class="kpi-sub">nesta fila</div></div>
+        </div>
+
+        <div class="card">
+          <div class="dash-list-header">
+            <h3 style="margin: 0">Chamados</h3>
+            <div class="filters">
+              <select id="fila-faixa">
+                <option value="">Todas as faixas</option>
+                <option value="alta">Risco alto</option>
+                <option value="media">Risco médio</option>
+                <option value="baixa">Risco baixo</option>
+              </select>
+              <label class="fila-check"><input type="checkbox" id="fila-pendentes" checked /> só sem decisão</label>
+            </div>
+          </div>
+          <div class="fila-grid">
+            <div id="fila-lista" class="data-table-wrap"><p class="muted">Carregando…</p></div>
+            <div id="fila-detalhe" class="fila-detalhe"><p class="muted">Escolha um chamado na lista.</p></div>
+          </div>
+        </div>
+      </section>
 
       <!-- ============ Upload ============ -->
       <section id="page-upload" style="display: none">

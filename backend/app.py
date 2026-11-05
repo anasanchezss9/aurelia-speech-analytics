@@ -2,6 +2,7 @@
 
 Endpoints:
   GET  /health                  - liveness
+  GET  /api/recursos            - o que está ligado neste deploy (gravação ao vivo)
   GET  /api/presets             - opções de análise pré-configuradas
   POST /api/analyze             - roda LLM sobre uma transcrição
   WS   /ws/transcribe           - streaming: recebe chunks de áudio,
@@ -24,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from llm_client import PRESET_FIELDS, LLMClient
+from fila_routes import router as fila_router
 from portal_routes import router as portal_router
 from whisper_client import WhisperClient
 
@@ -44,8 +46,9 @@ app.add_middleware(
 whisper = WhisperClient()
 llm = LLMClient()
 
-# Rotas do portal (upload, dashboard, calls, audio streaming)
+# Rotas do portal (upload, dashboard, calls, audio streaming) e da fila (Lakebase)
 app.include_router(portal_router)
+app.include_router(fila_router)
 
 
 # ---------- Models ----------
@@ -86,6 +89,13 @@ PRESET_LABELS: dict[str, str] = {
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/recursos")
+def recursos() -> dict[str, bool]:
+    # A gravação ao vivo depende de um endpoint Whisper em GPU; sem ele, as abas
+    # Configurar e Gravar somem em vez de falhar na primeira fala.
+    return {"gravacao_ao_vivo": bool(os.getenv("WHISPER_ENDPOINT"))}
 
 
 @app.get("/api/presets", response_model=list[PresetOut])
