@@ -297,7 +297,7 @@ async def ws_transcribe(ws: WebSocket) -> None:
 
 # ---------- Servir frontend ----------
 # Estratégia simples: HTML/CSS/JS standalone em ./static, sem build step.
-# (Existe também um frontend React em ../frontend/ — não usado em produção.)
+# O portal é HTML e JS puros em static/, servidos pelo próprio FastAPI.
 
 _HERE = Path(__file__).parent
 STATIC_DIR = _HERE / "static"
