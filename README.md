@@ -14,6 +14,12 @@ fraude. A decisão do analista volta para o lakehouse como rótulo.
 Tudo roda em dados sintéticos: a empresa, as consultoras, os pedidos, as ligações e
 os números são fictícios.
 
+[![Um minuto de app: da fila de investigação à decisão do analista](docs/media/demo-fila-investigacao.gif)](docs/media/demo-fila-investigacao.mp4)
+
+Um minuto de app: as ligações analisadas, a fila em ordem de probabilidade de fraude,
+o caso com peso da caixa, histórico e sinais da ligação, e a decisão do analista
+gravada no Lakebase. [Vídeo em MP4](docs/media/demo-fila-investigacao.mp4).
+
 ## Resultado
 
 | Medida | Resultado |
@@ -30,21 +36,7 @@ Na escala de um milhão de consultoras, a estimativa é passar de 52% para cerca
 
 ## Arquitetura
 
-```
- Central telefônica (áudio)   ─┐
- Telefonia (texto exportado)  ─┤   Lakeflow (SQL, serverless)                         Uso
- Pedidos, itens, entregas     ─┼─► bronze ─► silver ─────────────► gold ───────────►  Databricks App: fila do analista
- Chamados, investigações      ─┤   read_files  ai_transcribe        ai_query (JSON)     Lakebase: fila e decisões
- Consultoras                  ─┘   streaming   peso no CD e no hub  features por        Model Serving: score sob demanda
-                                               expectativas         chamado, fila       Genie: prevenção de perdas
-                                                                         │
-           Unity Catalog: um schema, linhagem do arquivo à feature,      ▼
-           modelo registrado (modelo_fraude_chamado @campeao)      MLflow: treino, calibração, registro
-                                                                         │
-           Lakebase ◄── synced table (fila) ── job diário ◄──────────────┘
-              │
-              └── decisões do analista ──CDF──► Delta no UC ──► rótulo do próximo treino
-```
+![Arquitetura: fontes, pipeline Lakeflow, modelo de fraude, app, Lakebase e Genie, com a decisão do analista voltando como rótulo](docs/img/arquitetura.svg)
 
 | Peça | Onde está | O que faz |
 |---|---|---|
@@ -57,6 +49,21 @@ Na escala de um milhão de consultoras, a estimativa é passar de 52% para cerca
 | Deploy | `databricks.yml` | bundle com o app, o pipeline e as permissões do app (job, volume, warehouse) |
 
 Cada pasta tem um README com as decisões, os números e as armadilhas daquela peça.
+
+## O app
+
+**Fila de investigação.** Os chamados abertos em ordem de probabilidade de fraude.
+Ao abrir um caso, o analista vê o que sustenta o score — peso da caixa no CD e no
+hub, comprovante, histórico da consultora, os sinais no relato e o resumo da
+ligação — e registra a decisão, que vai para o Lakebase.
+
+![Fila de investigação com um caso de risco alto aberto](docs/img/app-fila.png)
+
+**Dashboard das ligações.** O que o LLM extraiu de cada ligação, em áudio ou texto:
+tipo do problema, suspeita de desvio, sentimento, consultoras e produtos que mais
+aparecem.
+
+![Dashboard das ligações analisadas](docs/img/app-dashboard.png)
 
 ## Como rodar
 
