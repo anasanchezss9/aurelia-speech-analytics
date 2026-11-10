@@ -49,6 +49,7 @@ VOLUME = os.getenv("PORTAL_VOLUME", "audio_landing")
 TABLE_BRONZE = os.getenv("PORTAL_TABLE_BRONZE", "bronze_audio_files")
 TABLE_SILVER = os.getenv("PORTAL_TABLE_SILVER", "silver_transcripts")
 TABLE_GOLD = os.getenv("PORTAL_TABLE_GOLD", "gold_call_insights")
+TABLE_TEXTO = os.getenv("PORTAL_TABLE_TEXTO", "bronze_transcricoes_texto")
 WAREHOUSE_ID = os.getenv("PORTAL_WAREHOUSE_ID", "")  # SQL Warehouse pro app ler
 JOB_ID = int(os.getenv("PORTAL_JOB_ID", "0"))
 
@@ -636,7 +637,8 @@ def dashboard() -> DashboardOut:
     res_kpi = _sql(
         f"""
         SELECT
-          (SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_BRONZE})                       AS total_calls,
+          (SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_BRONZE})
+            + (SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_TEXTO})                    AS total_calls,
           (SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_GOLD})                         AS analyzed_calls,
           (SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_GOLD} WHERE suspeita_fraude)   AS suspeita_fraude_count,
           (SELECT count(*) FROM {CATALOG}.{SCHEMA}.{TABLE_GOLD} WHERE reincidencia)      AS reincidencia_count,

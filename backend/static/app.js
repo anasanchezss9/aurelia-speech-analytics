@@ -1115,14 +1115,19 @@
 
     box.appendChild(el("h4", null, "O chamado"));
     const dl = el("dl", "fila-fatos");
-    const div = (v) => (v === null || v === undefined ? "sem pesagem" : (Number(v) * 100).toFixed(1) + "%");
+    const div = (v, ref) => {
+      if (v === null || v === undefined) return "sem pesagem";
+      const pct = Number(v) * 100;
+      if (Math.abs(pct) < 0.05) return "igual " + ref;
+      return Math.abs(pct).toFixed(1).replace(".", ",") + "% " + (pct > 0 ? "abaixo " : "acima ") + ref;
+    };
     [
       ["Consultora", c.consultora_codigo + " · " + Number(c.meses_casa).toFixed(0) + " meses de casa"],
       ["Pedido", c.pedido_numero],
       ["Motivo", c.motivo_declarado + " · " + brl(c.valor_reclamado)],
-      ["Entrega", c.transportadora + " · " + c.uf + " · CD " + c.cd + (c.comprovante_assinado ? " · comprovante assinado" : "")],
-      ["Peso no CD", div(c.div_peso_cd) + " abaixo do teórico"],
-      ["Peso no hub", div(c.div_peso_hub) + " abaixo da expedição"],
+      ["Entrega", c.transportadora + " · " + c.uf + " · " + c.cd + (c.comprovante_assinado ? " · comprovante assinado" : "")],
+      ["Peso no CD", div(c.div_peso_cd, "do teórico")],
+      ["Peso no hub", div(c.div_peso_hub, "da expedição")],
       ["Histórico", c.chamados_180d + " chamado(s) em 180 dias · " + c.fraudes_confirmadas_antes + " fraude(s) confirmada(s) antes"],
     ].forEach(([k, v]) => { dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", null, v)); });
     box.appendChild(dl);
