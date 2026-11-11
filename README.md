@@ -14,11 +14,12 @@ fraude. A decisão do analista volta para o lakehouse como rótulo.
 Tudo roda em dados sintéticos: a empresa, as consultoras, os pedidos, as ligações e
 os números são fictícios.
 
-[![Um minuto de app: da fila de investigação à decisão do analista](docs/media/demo-fila-investigacao.gif)](docs/media/demo-fila-investigacao.mp4)
+https://github.com/user-attachments/assets/ce6e2df3-66d2-4979-9dec-02f391aeabbf
 
 Um minuto de app: as ligações analisadas, a fila em ordem de probabilidade de fraude,
 o caso com peso da caixa, histórico e sinais da ligação, e a decisão do analista
-gravada no Lakebase. [Vídeo em MP4](docs/media/demo-fila-investigacao.mp4).
+gravada no Lakebase. O mesmo vídeo está em
+[`docs/media/demo-fila-investigacao.mp4`](docs/media/demo-fila-investigacao.mp4).
 
 ## Resultado
 
