@@ -1,5 +1,10 @@
 # Aurélia · Chamados de falta e fraude
 
+**A mesma equipe de investigação passa a encontrar cerca de 85% do valor em fraude
+nos chamados de falta de produto, em vez de 52%: cerca de R$ 3,3 mi por ano na
+escala da Aurélia.** No teste, as mesmas 512 investigações acham 213 de 214 fraudes
+pela fila do modelo, contra 73 pela regra atual.
+
 A Aurélia Cosméticos (fictícia) vende por um milhão de consultoras. Quando um
 pedido chega com produto faltando, a consultora liga para a central, e a Aurélia
 ressarce. Parte desses chamados é fraude: a consultora recebeu e diz que não. Hoje
@@ -36,6 +41,11 @@ Na escala de um milhão de consultoras, a estimativa é passar de 52% para cerca
 (premissas no deck, `docs/deck-aurelia-chamados-falta.pdf`).
 
 ## Arquitetura
+
+Uma jornada só: áudio, texto e tabelas operacionais sintéticas → **Lakeflow** (bronze,
+silver, gold) → **Unity Catalog** → **modelo de fraude** no Model Serving e **LLM** no
+pipeline → **Lakebase** (a fila e as decisões) → **app** do analista, com o **Genie**
+sobre as mesmas tabelas gold. A decisão do analista volta do Lakebase como rótulo.
 
 ![Arquitetura: fontes, pipeline Lakeflow, modelo de fraude, app, Lakebase e Genie, com a decisão do analista voltando como rótulo](docs/img/arquitetura.svg)
 
@@ -97,14 +107,22 @@ databricks bundle run speech_analytics -t ft
 Depois disso, o job `aurelia-speech-diario` roda o pipeline, a pontuação e a
 sincronização da fila com o Lakebase, e o botão Processar do app dispara o mesmo job.
 
-## Como foi construído
+## Como foi construído com IA
 
 Ponto de partida: uma demo de speech analytics que eu já tinha feito (transcrição
 com Whisper e `ai_transcribe`, análise com `ai_query` e um portal de áudio), em cima
 da qual construí o mundo operacional, o pipeline de ponta a ponta, o modelo, o
-Lakebase, o Genie e a fila. Usei o Cursor com o Claude como assistente de código e o
-Databricks CLI para cada recurso; cada peça foi rodada e medida no workspace antes da
-seguinte.
+Lakebase, o Genie e a fila.
+
+O Cursor com o Claude foi o agente de código e operou o workspace pelo Databricks CLI;
+LLMs do workspace escreveram os roteiros e as transcrições sintéticas, e o Kokoro deu
+voz às ligações. O ciclo foi sempre o mesmo: eu defino o problema e o critério de
+aceite, o agente constrói e roda um passo, e o passo só fica se o número medido no
+workspace sustentar. Ferramentas, pedidos ao agente, prompts do produto e os pontos em
+que a IA errou e como foi pego estão em
+[`docs/construido-com-ia.md`](docs/construido-com-ia.md).
+
+## Decisões e trade-offs
 
 As decisões que mudaram o resultado, todas registradas nos READMEs das pastas:
 
@@ -123,8 +141,17 @@ As decisões que mudaram o resultado, todas registradas nos READMEs das pastas:
   só 90 chamados rotulados com ligação. O bootstrap pareado do ganho deu de -0,022 a
   +0,021, e o score ficou operacional; os sinais vão para a fila como evidência, e as
   decisões do analista geram os rótulos que faltam.
-- **Lakebase nos dois sentidos.** O app lê a fila e grava a decisão no Postgres; o
-  CDF devolve cada decisão como Delta em segundos.
+- **Lakebase nos dois sentidos, em vez de o app consultar o warehouse.** O app lê a
+  fila em ~160 ms sem acordar um warehouse e grava a decisão numa tabela
+  transacional, só inserção, para auditoria; o CDF devolve cada decisão como Delta em
+  segundos. O custo é uma peça a mais para operar (roles, synced table, CDF).
+- **`ai_transcribe` em vez de Whisper em GPU.** Sem endpoint, chunking nem resample:
+  o WAV de telefonia entra direto no SQL, e o trecho mudo não vira alucinação. O
+  trade-off é ser Beta e não listar português oficialmente; o notebook de comparação
+  com o Whisper fica no repositório para decidir com o áudio do cliente.
+- **O LLM traz evidência, o modelo ordena.** A confiança que o LLM declara dá 0,18 de
+  PR-AUC; usá-la como score seria mais simples e muito pior. O gold extrai campos e
+  sinais, e quem decide a ordem é um modelo calibrado.
 - **Custo.** Gravação ao vivo com Whisper em GPU desligada neste deploy; Lakebase e
   serving com scale-to-zero; transcrição e LLM uma vez por ligação.
 
